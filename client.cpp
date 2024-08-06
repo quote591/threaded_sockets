@@ -158,6 +158,12 @@ std::string recv()
 
 int main()
 {
+	// Main thead only deals with input.
+	// Worker thread does everything else, send recv, poll etc.
+
+	
+
+
     create("192.168.1.114", "27011");
     connect();
     while(true)

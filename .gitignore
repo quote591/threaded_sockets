@@ -1,4 +1,15 @@
+## Editor
 .vscode
+
+## Builds
 *.exe
+build/
+bin/
+
+## Testing files scripts
 test.*
 *.py
+
+## Media
+*.png
+*.jpg

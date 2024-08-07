@@ -3,12 +3,12 @@
 #include <mutex>
 
 // Output overload for std::vector<char> (Input buffer)
-std::ostream& operator<<(std::ostream& os, const std::vector<char>& vec)
-{
-    for (char c : vec)
-        os << c;
-    return os;
-}
+// std::ostream& operator<<(std::ostream& os, const std::vector<char>& vec)
+// {
+//     for (char c : vec)
+//         os << c;
+//     return os;
+// }
 
 class MessageHandler
 {

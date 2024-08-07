@@ -1,7 +1,7 @@
 #include "messageHandler.hpp"
 #include "display.hpp"
 #include <sstream>
-
+#include <thread>
 
 #include <conio.h> // _kbhit(), _getch()
 

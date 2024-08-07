@@ -1,0 +1,8 @@
+
+class Log
+{
+private:
+
+public:
+
+};

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <sstream>
 
 #include <windows.h>
 #include <conio.h>
@@ -48,9 +49,6 @@ std::vector<char> getInputBuffer(void)
     return inputBuffer;
 }
 
-
-
-
 // (Windows only)
 // https://cplusplus.com/forum/beginner/23421/
 bool GoToXY(short int x, short int y )
@@ -58,6 +56,22 @@ bool GoToXY(short int x, short int y )
     COORD position = { x, y };
     return SetConsoleCursorPosition( GetStdHandle( STD_OUTPUT_HANDLE ), position );
 }
+
+// This adds the buffer to the display
+void addMessageToDisplay(std::vector<char>& message, const short cols, const short rows)
+{
+    std::stringstream ss;
+    GoToXY(1, rows-3);
+
+    // Create string from the chars
+    for (char c : inputBuffer)
+        ss << c;
+
+    std::cout << ss.str();
+}
+
+
+
 
 // Zero indexed
 void GetConsoleMaxCoord(int& columns, int& rows)
@@ -183,9 +197,12 @@ int main()
         if (_kbhit()) {  // Check if a key is pressed
             c = _getch();  // Read the key press without buffering (no await enter key)
             if (c == '\r' || c == '\n') { 
-                std::cout << "Enter key pressed." << std::endl;
+                // std::cout << "Enter key pressed." << std::endl;
+                int column, row;
+                GetConsoleMaxCoord(column, row);
+                addMessageToDisplay(inputBuffer, column, row);
                 // Here we can do checks like is input "Exit", then we return.
-                break;
+                // break;
             }
             else if(c == 27) // ASCII ESC
             {

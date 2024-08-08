@@ -3,6 +3,10 @@
 #include <ctime>
 #include <sstream>
 
+// Static
+Log* Log::pInstance = nullptr;
+std::mutex Log::instanceMutex;
+
 Log::Log()
 {
     std::time_t now = std::time(nullptr);
@@ -23,6 +27,8 @@ Log::~Log()
 
 void Log::m_LogWrite(std::string moduleFunction, std::string message)
 {
+    std::lock_guard<std::mutex> lock(writeMutex);
+
     auto elapsed = std::chrono::high_resolution_clock::now() - this->startTimePoint;
     
     std::string mins_elapsed = std::to_string(std::chrono::duration_cast<std::chrono::minutes>(elapsed).count()%60);
@@ -43,4 +49,14 @@ void Log::m_LogWrite(std::string moduleFunction, std::string message)
     // std::cout << ss.str() << " " << ss.str().size() << std::endl;
     f.write(ss.str().c_str(), ss.str().size());
     f.flush();
+}
+
+Log *Log::s_GetInstance(void)
+{
+    std::lock_guard<std::mutex> lock(instanceMutex);
+    if (pInstance == nullptr)
+    {
+        pInstance = new Log();
+    }
+    return pInstance;
 }

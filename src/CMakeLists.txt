@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 ## set(CMAKE_C_COMPILER "gcc")
 ## set(CMAKE_CXX_COMPILER "g++")
 
-set(sourceFiles display.cpp messageHandler.cpp)
+set(sourceFiles display.cpp messageHandler.cpp logging.cpp)
 add_library(mainLib STATIC "${sourceFiles}")
 
 add_executable(main main.cpp)

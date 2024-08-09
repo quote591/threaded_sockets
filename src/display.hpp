@@ -5,6 +5,9 @@ const char wholeBlockChar = 219;
 const char lowerBlockChar = 220;
 const char upperBlockChar = 223;
 
+// Forward definition
+class MessageHandler;
+
 class Display
 {
 private:
@@ -30,12 +33,17 @@ public:
     static void s_ClearTerminal(void);
 
     // @brief draws the display
-    static void s_Draw(std::mutex& writeToScreenMutex);
+    static void s_Draw(MessageHandler* messageHandlerHandle);
 
     // @brief Thread safe way to access std::cout
     // @args Mutex for screen writing
     // @args X position on screen
     // @args Y position on screen
     // @args msg - string reference to the message
-    static void s_WriteToScreen(std::mutex writeToScreenMutex, short x_col, short y_row, std::string& msg);
+    static void s_WriteToScreen(short x_col, short y_row, std::string& msg);
+
+    // @brief Write characters in the input field. Should only be used by messageHandler
+    // @args msg - what to put into cout
+    static void s_WriteToInputDisplay(std::string msg);
+    static void s_WriteToInputDisplay(char c);
 };

@@ -2,6 +2,7 @@
 
 #include <ctime>
 #include <sstream>
+#include <thread>
 
 // Static
 Log* Log::pInstance = nullptr;
@@ -27,6 +28,9 @@ Log::~Log()
 
 void Log::m_LogWrite(std::string moduleFunction, std::string message)
 {
+    // Idea, print the thread ID into this so we know which thread is doing what?
+    // Could maybe use a map when the thread starts it enters its ID with the name i.e. DrawThread
+    // Then when a call is made we can sub the ID with the affiliated name?
     std::lock_guard<std::mutex> lock(writeMutex);
 
     auto elapsed = std::chrono::high_resolution_clock::now() - this->startTimePoint;
@@ -42,9 +46,9 @@ void Log::m_LogWrite(std::string moduleFunction, std::string message)
 
     std::stringstream ss;
     
-    // [00:00:001][modulesFunction] : message
+    // [00:00:001][modulesFunction] : message (threadID)
     ss << "[" << mins_elapsed << ":" << sec_elapsed << ":" << mss_elapsed << "]"
-        << "[" << moduleFunction << "] : " << message << "\n";
+        << "[" << moduleFunction << "\t] : " << message << "(th_id " << std::this_thread::get_id() << ")" << "\n";
     
     // std::cout << ss.str() << " " << ss.str().size() << std::endl;
     f.write(ss.str().c_str(), ss.str().size());

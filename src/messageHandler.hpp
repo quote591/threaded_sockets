@@ -48,6 +48,13 @@ public:
     // @returns Copy string
     std::string m_GetInputBufferStr(void);
 
+    // @brief return the size of the input buffer
+    int m_GetInputBufferSize(void);
+
+    // @brief Get the sent messages (thread safe)
+    // @param lines - Get n amount of messages from the entire vector
+    // @return copy of the data
+    std::vector<std::string> m_GetDisplayMessages(size_t lines);
 
     // @brief Add message to display buffer (thread safe)
     // @args str - message by reference

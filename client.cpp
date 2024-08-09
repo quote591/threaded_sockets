@@ -152,7 +152,6 @@ std::string recv()
 	std::string msg = read_buffer;
 	free(read_buffer);
 
-
 	return msg;
 }
 

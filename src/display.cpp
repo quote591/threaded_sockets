@@ -1,6 +1,10 @@
 #include "display.hpp"
+#include "messageHandler.hpp"
+#include "logging.hpp"
+
 #include <windows.h>
 #include <iostream>
+
 
 // Static definition
 std::mutex Display::s_writeToScreenMutex;
@@ -63,9 +67,9 @@ void Display::s_ClearTerminal(void)
 #endif
 }
 
-void Display::s_Draw(std::mutex& writeToScreenMutex)
+void Display::s_Draw(MessageHandler* messageHandlerHandle)
 {
-    std::lock_guard<std::mutex> lock(writeToScreenMutex);
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
 
     short columns, rows;
     s_GetConsoleMaxCoords(columns, rows);
@@ -87,18 +91,38 @@ void Display::s_Draw(std::mutex& writeToScreenMutex)
         s_GoToXY(columns, i);
         std::cout << wholeBlockChar;
     }
-    // Position of the input part
-    // s_goToXY(1,rows-1);
 
-    // auto buffer = getInputBuffer();
-    // std::cout << buffer;
-    // s_goToXY(buffer.size()+1, rows-1);
+    // Draw previous messages
+    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-3);
+
+    for (size_t i = 0; i < displayMessages.size(); i++)
+    {
+        s_GoToXY(1, rows-3-i);
+        std::cout << displayMessages[i];
+    }
+    s_GoToXY(1, rows-1);
+    std::cout << messageHandlerHandle->m_GetInputBufferStr();
+
+    // After return cursor position to input box
+    s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);
 }
 
-void Display::s_WriteToScreen(std::mutex writeToScreenMutex, short x_col, short y_row, std::string& msg)
+void Display::s_WriteToScreen(short x_col, short y_row, std::string& msg)
 {
-    std::lock_guard<std::mutex> lock(writeToScreenMutex);
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
 
     s_GoToXY(x_col, y_row);
     std::cout << msg;
+}
+
+void Display::s_WriteToInputDisplay(std::string msg)
+{
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
+    std::cout << msg;
+}
+
+void Display::s_WriteToInputDisplay(char c)
+{
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
+    std::cout << c;
 }

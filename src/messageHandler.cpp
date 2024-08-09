@@ -11,13 +11,13 @@
 MessageHandler::MessageHandler()
 {
     Log::s_GetInstance()->m_LogWrite("MessageHandler::MessageHandler()", "Thread started");
-    m_threadHandle = std::thread(m_HandleInput, this);
+    // m_threadHandle = std::thread(m_HandleInput, this);
 }
 
 MessageHandler::~MessageHandler()
 {
     Log::s_GetInstance()->m_LogWrite("MessageHandler::~MessageHandler()", "Thread joined");
-    m_threadHandle.join();
+    // m_threadHandle.join();
 }
 
 void MessageHandler::m_PushInputBuffer(char c)
@@ -51,6 +51,27 @@ std::string MessageHandler::m_GetInputBufferStr(void)
 int MessageHandler::m_GetInputBufferSize(void)
 {
     return static_cast<int>(m_inputBuffer.size());
+}
+
+void MessageHandler::m_PushMessageToSendQueue(std::string msg)
+{
+    std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
+    m_sendMessageQueue.push(msg);
+}
+
+int MessageHandler::m_GetSizeofSendQueue(void)
+{
+    std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
+    return m_sendMessageQueue.size();
+}
+
+std::string MessageHandler::m_GetMessageFromSendQueue(void)
+{
+    std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
+    std::string msg;
+    msg = m_sendMessageQueue.front();
+    m_sendMessageQueue.pop();
+    return msg;
 }
 
 std::vector<std::string> MessageHandler::m_GetDisplayMessages(size_t lines)
@@ -100,11 +121,17 @@ void MessageHandler::m_HandleInput(void)
                 // Handle a Network socket send.
                 // The server will return the message to you which will then put it in the message history
                 // The message history is the definative proof that a message has been sent
+                
+                if (ToLowerCase(this->m_GetInputBufferStr()) == "exit")
+                {
+                    Log::s_GetInstance()->m_LogWrite("MessageHandler::m_HandleInput()", "Exit command recieved.");
+                    return;
+                }
             }
             else if(c == 27) // ASCII ESC
             {
                 Log::s_GetInstance()->m_LogWrite("MessageHandler::m_HandleInput()", "ESC key pressed");
-                return;
+                return; // Return thread
             }
             // If char is printable then we can add it to our buffer
             if (std::isprint(c))

@@ -50,6 +50,9 @@ public:
     // @brief Will delete the last character in the input buffer
     void m_DelCharInputBuffer(void);
 
+    // @brief Will empty the input buffer in a thread safe way
+    void m_ClearInputBuffer(void);
+
     // @brief Get the input buffer (thread safe)
     // @return A copy of the input buffer
     std::vector<char> m_GetInputBuffer(void);

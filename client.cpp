@@ -85,22 +85,7 @@ bool connect()
 }
 
 std::string recv()
-{	
-
-    // Idea so far: (for server)
-    // Main thread spools up worker thread.
-    // Main thread then deals with displaying to screen and taking user input for sending.
-    // 
-    // Worker thread cycles through all handled connections. Any connections taht have waiting data
-    // will be dealt with and their message will be put into a buffer which main thread will periodically
-    // check to update the screen.
-    //
-    // Worker therad will also check a flag to see if there are any incoming connections. If so 
-    // an async task will be spooled up to accept the connection and add it to connection list.
-    //
-    //
-
-
+{
     // Using poll as this is used on both windwos and linux
     
     // typedef struct pollfd {

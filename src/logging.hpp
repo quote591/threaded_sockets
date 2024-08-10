@@ -19,8 +19,8 @@ private:
 public:
 
     // @brief Logging function that writes message into file within logs/
-    // @args modelFunction - string of the method or system making the log
-    // @args message - log message
+    // @param modelFunction - string of the method or system making the log
+    // @param message - log message
     void m_LogWrite(std::string moduleFunction, std::string message);
 
     // Singleton 

@@ -13,16 +13,28 @@ NetworkHandler* p_networkHandler;
 
 std::atomic<int> returnThreads{0};
 
-const std::string hostname = "127.0.0.1";
+const std::string hostname = "192.168.1.114";
 const std::string port = "27011";
 
+// UpdateRate
+#define THREADUPDATERATE 60 // hz
+constexpr int msThreadDelay = 1000/THREADUPDATERATE;
+
+// Should run a certain amount of updates a second (60hz)
+// 1000/60 ms wait per cycle. 
 void HandleNetwork(void)
 {
     p_networkHandler = new NetworkHandler();
 
     p_networkHandler->m_Create(hostname, port);
-    p_networkHandler->m_Connect();
-
+    
+    // Keep trying to connect until we do
+    while (true)
+    {
+        if(p_networkHandler->m_Connect())
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
+    }
     // Recv and send any data that is available
     while (true)
     {
@@ -31,9 +43,11 @@ void HandleNetwork(void)
         if (recvMsg != "")
         {
             p_messageHandler->m_PushMessageToDisplay(recvMsg);
+            Display::s_DrawMessageDisplay(p_messageHandler);
         }
         // We check if there are any messages that are needed to be sent
         // if messageHandler has any messages on the queue then we should send them
+
         if (p_messageHandler->m_GetSizeofSendQueue() > 0)
         {
             p_networkHandler->m_Send(p_messageHandler->m_GetMessageFromSendQueue());
@@ -47,6 +61,7 @@ void HandleNetwork(void)
             p_networkHandler->m_Close();
             return;
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
     }
 }
 

@@ -38,7 +38,7 @@ bool NetworkHandler::m_Create(std::string hostName, std::string port)
         service_buffer, sizeof(service_buffer),
         NI_NUMERICHOST);
 
-    std::stringstream getNameInfoSS; getNameInfoSS << "Remote address: " << address_buffer << ":" << service_buffer << ")";
+    std::stringstream getNameInfoSS; getNameInfoSS << "Remote address: " << address_buffer << ":" << service_buffer;
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", getNameInfoSS.str());
 
     // Create socket
@@ -51,13 +51,18 @@ bool NetworkHandler::m_Create(std::string hostName, std::string port)
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", isValidSocketSS.str());
         return false;
     }
+    // // Set socket into non-blocking mode
+    // u_long iMode = 1;
+    // if (ioctlsocket(socket_peer, FIONBIO, &iMode) != NO_ERROR)
+    //     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "Error setting socket as non-blocking");
+
     return true;
 }
 
 
 bool NetworkHandler::m_Connect()
 {
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Creating socket...");
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Attempting to connect...");
 
     // Connect
     
@@ -88,23 +93,34 @@ std::string NetworkHandler::m_RecieveMessages(void)
     // We have a packet to process
     else if (retCode != 0)
     {
-        int read_buffer_size = 256;
-        char* read_buffer = (char*)calloc(read_buffer_size, sizeof(char));
-        int bytes_recived = 0;
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Packet available");
+        
+        int readBufferSize = 512;
+        char* readBuffer = (char*)calloc(readBufferSize, sizeof(char));
+        int bytesRecived = 0;
 
-        recv(socket_peer, read_buffer, read_buffer_size, 0);
+        // int retCode2;
+        // do {
+        //     // Resize the read in buffer
+        //     if (bytesRecived >= readBufferSize){
+        //         // Double input buffer size
+        //         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Double");
 
-        do {
-            // Resize the read in buffer
-            if (bytes_recived >= read_buffer_size){
-                // Double input buffer size
-                read_buffer = (char*)realloc(read_buffer, read_buffer_size *= 2);
-            }
-        // Keep reading while there is data
-        } while ((bytes_recived = recv(socket_peer, read_buffer, read_buffer_size, 0)) > 0);
+        //         readBuffer = (char*)realloc(readBuffer, readBufferSize *= 2);
+        //     }
+        //     bytesRecived = recv(socket_peer, readBuffer, readBufferSize, 0);
+        //     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Marker");
+        //     retCode2 = WSAPoll(fds, 1, 1);
+        // } while (retCode2 != 0);
 
-        std::string msg = read_buffer;
-        free(read_buffer);
+        bytesRecived = recv(socket_peer, readBuffer, readBufferSize, 0);
+
+        std::string bytesRecvMsg = "Bytes recieved: ";
+        bytesRecvMsg += std::to_string(bytesRecived);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", bytesRecvMsg);
+
+        std::string msg = readBuffer;
+        free(readBuffer);
 
         return msg;            
     }
@@ -114,6 +130,8 @@ std::string NetworkHandler::m_RecieveMessages(void)
 
 bool NetworkHandler::m_Send(std::string msg)
 {
+    std::stringstream ss; ss << "Sent: '" << msg << "' (" << msg.size() << " bytes)";
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", ss.str());
     return send(socket_peer, msg.c_str(), msg.size(), 0);
 }
 

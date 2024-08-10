@@ -98,7 +98,15 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
     for (size_t i = 0; i < displayMessages.size(); i++)
     {
         s_GoToXY(1, rows-3-i);
-        std::cout << displayMessages[i];
+        if (displayMessages[i].size() > columns-1)
+        {
+            std::cout << displayMessages[i].substr(0, columns-4);
+            std::cout << "...";
+        }
+        else{
+            std::cout << displayMessages[i];
+        }
+
     }
     s_GoToXY(1, rows-1);
     std::cout << messageHandlerHandle->m_GetInputBufferStr();
@@ -125,4 +133,63 @@ void Display::s_WriteToInputDisplay(char c)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
     std::cout << c;
+}
+
+void Display::s_ClearInputField(void)
+{
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
+
+    short columns, rows;
+    Display::s_GetConsoleMaxCoords(columns, rows);
+
+    // Put cursor at beginning to overwrite current text
+    s_GoToXY(1, rows-1);
+
+    std::string clearMsg = "";
+    for (int i = 0; i < columns-2; i++)
+        clearMsg += " ";
+    std::cout << clearMsg;
+
+    // Return cursor to the beginning of the input field
+    s_GoToXY(1, rows-1);
+}
+
+void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
+{
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
+    
+    short columns, rows;
+    Display::s_GetConsoleMaxCoords(columns, rows);
+
+    std::string clearString = "";
+    for (int i = 0; i < columns-2; i++)
+        clearString+=" ";
+
+    for (int i = 1; i < rows-2; i++)
+    {
+        s_GoToXY(1, i);
+        std::cout << clearString;
+    }
+
+    // Draw previous messages
+    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-3);
+
+    for (size_t i = 0; i < displayMessages.size(); i++)
+    {
+        s_GoToXY(1, rows-3-i);
+        if (displayMessages[i].size() > columns-1)
+        {
+            std::cout << displayMessages[i].substr(0, columns-4);
+            std::cout << "...";
+        }
+        else{
+            std::cout << displayMessages[i];
+        }
+
+    }
+    s_GoToXY(1, rows-1);
+    std::cout << messageHandlerHandle->m_GetInputBufferStr();
+
+    // After return cursor position to input box
+    s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);
 }

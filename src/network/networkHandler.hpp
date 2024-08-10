@@ -18,8 +18,8 @@ private:
 
 public:
     // @brief Creates the socket and policies
-    // @param hostName - ipAddress
-    // @param port - port number string
+    // @param hostName ipAddress
+    // @param port port number string
     // @return bool - success
     bool m_Create(std::string hostName, std::string port);
 

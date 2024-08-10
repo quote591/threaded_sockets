@@ -32,6 +32,12 @@ void MessageHandler::m_DelCharInputBuffer(void)
     m_inputBuffer.pop_back();
 }
 
+void MessageHandler::m_ClearInputBuffer(void)
+{
+    std::lock_guard<std::mutex> lock_input(m_inputBufferMutex);
+    m_inputBuffer.clear();
+}
+
 std::vector<char> MessageHandler::m_GetInputBuffer(void)
 {
     std::lock_guard<std::mutex> lock_input(m_inputBufferMutex);
@@ -89,10 +95,6 @@ std::vector<std::string> MessageHandler::m_GetDisplayMessages(size_t lines)
     {
         returnMessages.push_back(m_displayBuffer[m_displayBuffer.size()-i-1]);
     }
-
-    std::stringstream message;
-    message << "Number of messages: " << numberOfMessages;
-    Log::s_GetInstance()->m_LogWrite("MessageHandler::m_GetDisplayMessages()", message.str());
     return returnMessages;
 }
 
@@ -127,6 +129,11 @@ void MessageHandler::m_HandleInput(void)
                     Log::s_GetInstance()->m_LogWrite("MessageHandler::m_HandleInput()", "Exit command recieved.");
                     return;
                 }
+                // Get the input buffer and add it to the send queue
+                this->m_PushMessageToSendQueue(this->m_GetInputBufferStr());
+                // Empty the input buffer
+                this->m_ClearInputBuffer();
+                Display::s_ClearInputField();
             }
             else if(c == 27) // ASCII ESC
             {

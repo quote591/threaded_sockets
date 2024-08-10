@@ -128,7 +128,7 @@ bool accept()
     else if (retCode == 0)
     {
         printf("Nothing yet.");
-        return "";
+        // return "";
     }
     else
     {
@@ -195,12 +195,12 @@ int main()
 
     create("27011");
     listen(1);
+	accept();
 
-    for(;;)
-    {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        accept();
-    }
+    // for(;;)
+    // {
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
     
     
     while(true)

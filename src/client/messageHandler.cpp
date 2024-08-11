@@ -14,11 +14,13 @@ MessageHandler::MessageHandler()
     // m_threadHandle = std::thread(m_HandleInput, this);
 }
 
+
 MessageHandler::~MessageHandler()
 {
     Log::s_GetInstance()->m_LogWrite("MessageHandler::~MessageHandler()", "Thread joined");
     // m_threadHandle.join();
 }
+
 
 void MessageHandler::m_PushInputBuffer(char c)
 {
@@ -26,11 +28,13 @@ void MessageHandler::m_PushInputBuffer(char c)
     m_inputBuffer.push_back(c);
 }
 
+
 void MessageHandler::m_DelCharInputBuffer(void)
 {
     std::lock_guard<std::mutex> lock_input(m_inputBufferMutex);
     m_inputBuffer.pop_back();
 }
+
 
 void MessageHandler::m_ClearInputBuffer(void)
 {
@@ -38,11 +42,13 @@ void MessageHandler::m_ClearInputBuffer(void)
     m_inputBuffer.clear();
 }
 
+
 std::vector<char> MessageHandler::m_GetInputBuffer(void)
 {
     std::lock_guard<std::mutex> lock_input(m_inputBufferMutex);
     return m_inputBuffer;
 }
+
 
 std::string MessageHandler::m_GetInputBufferStr(void)
 {
@@ -54,10 +60,12 @@ std::string MessageHandler::m_GetInputBufferStr(void)
     return ss.str();
 }
 
+
 int MessageHandler::m_GetInputBufferSize(void)
 {
     return static_cast<int>(m_inputBuffer.size());
 }
+
 
 void MessageHandler::m_PushMessageToSendQueue(std::string msg)
 {
@@ -65,11 +73,13 @@ void MessageHandler::m_PushMessageToSendQueue(std::string msg)
     m_sendMessageQueue.push(msg);
 }
 
+
 int MessageHandler::m_GetSizeofSendQueue(void)
 {
     std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
     return m_sendMessageQueue.size();
 }
+
 
 std::string MessageHandler::m_GetMessageFromSendQueue(void)
 {
@@ -79,6 +89,7 @@ std::string MessageHandler::m_GetMessageFromSendQueue(void)
     m_sendMessageQueue.pop();
     return msg;
 }
+
 
 std::vector<std::string> MessageHandler::m_GetDisplayMessages(size_t lines)
 {
@@ -98,11 +109,13 @@ std::vector<std::string> MessageHandler::m_GetDisplayMessages(size_t lines)
     return returnMessages;
 }
 
+
 void MessageHandler::m_PushMessageToDisplay(std::string &str)
 {
     std::lock_guard<std::mutex> lock_display(m_displayBufferMutex);
     m_displayBuffer.push_back(str);
 }
+
 
 void MessageHandler::m_ClearDisplayBuffer(void)
 {
@@ -169,6 +182,7 @@ void MessageHandler::m_HandleInput(void)
         }
     }
 }
+
 
 void MessageHandler::m_ReturnThreads(void)
 {

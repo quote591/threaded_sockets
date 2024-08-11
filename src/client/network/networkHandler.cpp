@@ -3,6 +3,11 @@
 
 #include <sstream>
 
+// Static declares
+bool NetworkHandler::bConnectedFlag = false;
+std::mutex NetworkHandler::connectedFlagMutex;
+
+
 bool NetworkHandler::m_Create(std::string hostName, std::string port)
 {
     // Not filled in 
@@ -75,8 +80,10 @@ bool NetworkHandler::m_Connect()
     }
     freeaddrinfo(peer_address);
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
+    NetworkHandler::s_SetConnectedFlag(true);
     return true;
 }
+
 
 std::string NetworkHandler::m_RecieveMessages(void)
 {
@@ -128,6 +135,7 @@ std::string NetworkHandler::m_RecieveMessages(void)
     return "";
 }
 
+
 bool NetworkHandler::m_Send(std::string msg)
 {
     std::stringstream ss; ss << "Sent: '" << msg << "' (" << msg.size() << " bytes)";
@@ -145,5 +153,20 @@ bool NetworkHandler::m_Close(void)
 WSACleanup();
 #endif
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Close()", "Socket closed.");
+    NetworkHandler::s_SetConnectedFlag(false);
     return true;
+}
+
+
+void NetworkHandler::s_SetConnectedFlag(bool value)
+{
+    std::lock_guard<std::mutex> lock(connectedFlagMutex);
+    bConnectedFlag = value;
+}
+
+
+bool NetworkHandler::s_GetConnectedFlag(void)
+{
+    std::lock_guard<std::mutex> lock(connectedFlagMutex);
+    return bConnectedFlag;
 }

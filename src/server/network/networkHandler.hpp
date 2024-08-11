@@ -9,6 +9,13 @@
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
+struct NetworkedUser
+{
+    std::string m_alias;
+    SOCKET m_userSocket;
+};
+
+
 class NetworkHandler
 {
 private:
@@ -23,9 +30,9 @@ public:
     // @return bool - success
     bool m_Create(std::string hostName, std::string port);
 
-    // @brief Establishes the network connection
+    // @brief Accept any incoming connections
     // @return bool - success
-    bool m_Connect(void);
+    bool m_Accept(void);
 
     // @brief Checks if any messages are waiting to be read
     // @return If there are messages then return a copy of them

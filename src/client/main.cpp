@@ -32,8 +32,18 @@ void HandleNetwork(void)
     while (true)
     {
         if(p_networkHandler->m_Connect())
+        {
+            Display::s_DrawInfoDisplay(p_messageHandler);
             break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
+
+        // Return threads
+        if (returnThreads)
+        {
+            p_networkHandler->m_Close();
+            return;
+        }
     }
     // Recv and send any data that is available
     while (true)
@@ -59,6 +69,7 @@ void HandleNetwork(void)
         if (returnThreads)
         {
             p_networkHandler->m_Close();
+            Display::s_DrawInfoDisplay(p_messageHandler);
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -84,7 +95,7 @@ void DrawThreadMethod(void)
             // updateDraw^=1;
         }
             
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
         if (returnThreads) {return;}
     }
 }

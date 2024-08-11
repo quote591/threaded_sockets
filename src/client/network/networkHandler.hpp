@@ -4,6 +4,7 @@
 #include <Windows.h>
 
 #include <string>
+#include <mutex>
 
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
 #define CLOSESOCKET(s) closesocket(s)
@@ -15,6 +16,8 @@ private:
     SOCKET socket_peer;
     struct addrinfo* peer_address;
 
+    static bool bConnectedFlag;
+    static std::mutex connectedFlagMutex;
 
 public:
     // @brief Creates the socket and policies
@@ -39,4 +42,13 @@ public:
     // @brief Close the established connection
     // @return bool - success
     bool m_Close(void);
+
+    // @brief Set the connection boolean
+    // @param Value the boolean to set the flag
+    static void s_SetConnectedFlag(bool value);
+
+    // @brief Get the value of the connection boolean
+    // @return Wether the socket is connected
+    static bool s_GetConnectedFlag(void);
+
 };

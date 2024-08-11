@@ -53,4 +53,8 @@ public:
     // @brief Draw the messages in the display
     // @param MessageHandler object to get the messages
     static void s_DrawMessageDisplay(MessageHandler* messageHandlerHandle);
+
+    // @brief Update the info section of the display
+    // @param MessageHandler object to get the messages
+    static void s_DrawInfoDisplay(MessageHandler *messageHandlerHandle);
 };

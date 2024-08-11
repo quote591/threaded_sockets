@@ -1,13 +1,23 @@
 #include "display.hpp"
 #include "messageHandler.hpp"
 #include "logging.hpp"
+#include "network/networkHandler.hpp"
 
 #include <windows.h>
 #include <iostream>
 
+// How many lines of rows are taken up by borders etc.
+#define ROWLOWERPADDING 3
+#define ROWUPPERPADDING 3
+#define ROWTOTALPADDING 5
+
+// For info display section
+#define CONNECTIONINFOSTATUSOFFSET 25
+#define CONNECTEDUSERSOFFSET 61
 
 // Static definition
 std::mutex Display::s_writeToScreenMutex;
+
 
 void Display::s_SetTerminalModeRaw(void)
 {
@@ -22,6 +32,7 @@ void Display::s_SetTerminalModeRaw(void)
 #endif
 }
 
+
 void Display::s_SetTerminalModeReset(void)
 {
 #ifdef _WIN32
@@ -34,6 +45,7 @@ void Display::s_SetTerminalModeReset(void)
     // Unix not implemented
 #endif
 }
+
 
 void Display::s_GetConsoleMaxCoords(short &columns, short &rows)
 {
@@ -48,6 +60,7 @@ void Display::s_GetConsoleMaxCoords(short &columns, short &rows)
 #endif
 }
 
+
 bool Display::s_GoToXY(const short x_col, const short y_row)
 {
 #ifdef _WIN32
@@ -58,6 +71,7 @@ bool Display::s_GoToXY(const short x_col, const short y_row)
 #endif
 }
 
+
 void Display::s_ClearTerminal(void)
 {
 #ifdef _WIN32
@@ -67,6 +81,7 @@ void Display::s_ClearTerminal(void)
 #endif
 }
 
+
 void Display::s_Draw(MessageHandler* messageHandlerHandle)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
@@ -74,10 +89,25 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
     short columns, rows;
     s_GetConsoleMaxCoords(columns, rows);
 
+    // If the window is too small then we dont display and print window too small
+    if (columns < 80 || rows < 12)
+    {
+        std::string tooSmallMsg = "Terminal too small.";
+        s_GoToXY((columns/2)-(tooSmallMsg.size()/2), rows/2);
+        std::cout << tooSmallMsg;
+        return;
+    }
+
+
     for (int i = 1; i < columns; i++)
     {
+        // Top info bar
         s_GoToXY(i, 0);
-        std::cout << wholeBlockChar;
+        std::cout << upperBlockChar;
+        s_GoToXY(i, 2);
+        std::cout << lowerBlockChar;
+
+        // Bottom input bar
         s_GoToXY(i, rows-2);
         std::cout << upperBlockChar; 
         s_GoToXY(i, rows);
@@ -86,19 +116,36 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
     // Top and bottom corners already done
     for (int i = 0; i < rows+1; i++)
     {
+        // Sides
         s_GoToXY(0, i);
         std::cout << wholeBlockChar;
         s_GoToXY(columns, i);
         std::cout << wholeBlockChar;
     }
 
+
+    // Draw info bar
+    // Username max size 8 chars
+    s_GoToXY(2, 1);
+    std::cout << "Username: ________";
+
+    // Connection status
+    s_GoToXY(CONNECTIONINFOSTATUSOFFSET, 1);
+    if (NetworkHandler::s_GetConnectedFlag() == false)
+        std::cout << "Connection status: Disconnected";
+    else
+        std::cout << "Connection status: Connected";
+
+    s_GoToXY(CONNECTEDUSERSOFFSET, 1);
+    std::cout << "Connected users: 3";
+
     // Draw previous messages
-    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-3);
+    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-ROWTOTALPADDING);
 
     for (size_t i = 0; i < displayMessages.size(); i++)
     {
-        s_GoToXY(1, rows-3-i);
-        if (displayMessages[i].size() > columns-1)
+        s_GoToXY(1, rows-ROWLOWERPADDING-i);
+        if (static_cast<int>(displayMessages[i].size()) > columns-1)
         {
             std::cout << displayMessages[i].substr(0, columns-4);
             std::cout << "...";
@@ -115,6 +162,7 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
     s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);
 }
 
+
 void Display::s_WriteToScreen(short x_col, short y_row, std::string& msg)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
@@ -123,17 +171,20 @@ void Display::s_WriteToScreen(short x_col, short y_row, std::string& msg)
     std::cout << msg;
 }
 
+
 void Display::s_WriteToInputDisplay(std::string msg)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
     std::cout << msg;
 }
 
+
 void Display::s_WriteToInputDisplay(char c)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
     std::cout << c;
 }
+
 
 void Display::s_ClearInputField(void)
 {
@@ -154,6 +205,7 @@ void Display::s_ClearInputField(void)
     s_GoToXY(1, rows-1);
 }
 
+
 void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
@@ -165,19 +217,19 @@ void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
     for (int i = 0; i < columns-2; i++)
         clearString+=" ";
 
-    for (int i = 1; i < rows-2; i++)
+    for (int i = ROWUPPERPADDING; i < rows-ROWLOWERPADDING+1; i++)
     {
         s_GoToXY(1, i);
         std::cout << clearString;
     }
 
     // Draw previous messages
-    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-3);
+    auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-ROWTOTALPADDING);
 
     for (size_t i = 0; i < displayMessages.size(); i++)
     {
-        s_GoToXY(1, rows-3-i);
-        if (displayMessages[i].size() > columns-1)
+        s_GoToXY(1, rows-ROWLOWERPADDING-i);
+        if (static_cast<int>(displayMessages[i].size()) > columns-1)
         {
             std::cout << displayMessages[i].substr(0, columns-4);
             std::cout << "...";
@@ -185,10 +237,42 @@ void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
         else{
             std::cout << displayMessages[i];
         }
-
     }
     s_GoToXY(1, rows-1);
     std::cout << messageHandlerHandle->m_GetInputBufferStr();
+
+    // After return cursor position to input box
+    s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);
+}
+
+
+void Display::s_DrawInfoDisplay(MessageHandler *messageHandlerHandle)
+{
+    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
+    // Clear info bar
+    short columns, rows;
+    Display::s_GetConsoleMaxCoords(columns, rows);
+
+    std::string clearString = "";
+    for (int i = 0; i < columns-2; i++)
+        clearString+=" ";
+    s_GoToXY(1, 1);
+    std::cout << clearString;
+
+    // Draw info bar
+    // Username max size 8 chars
+    s_GoToXY(2, 1);
+    std::cout << "Username: ________";
+
+    // Connection status
+    s_GoToXY(CONNECTIONINFOSTATUSOFFSET, 1);
+    if (NetworkHandler::s_GetConnectedFlag() == false)
+        std::cout << "Connection status: Disconnected";
+    else
+        std::cout << "Connection status: Connected";
+
+    s_GoToXY(CONNECTEDUSERSOFFSET, 1);
+    std::cout << "Connected users: 3";
 
     // After return cursor position to input box
     s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);

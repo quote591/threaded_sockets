@@ -3,8 +3,12 @@
 #include "logging.hpp"
 #include "network/networkHandler.hpp"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif // _WIN32
+
 #include <iostream>
+#include <sstream>
 
 // How many lines of rows are taken up by borders etc.
 #define ROWLOWERPADDING 3
@@ -89,6 +93,9 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
     short columns, rows;
     s_GetConsoleMaxCoords(columns, rows);
 
+    std::stringstream resolutionMessage; 
+    resolutionMessage << "Terminal resolution changed, redrawing. " << columns << "x" << rows;
+    Log::s_GetInstance()->m_LogWrite("Display::s_Draw()", resolutionMessage.str());
     // If the window is too small then we dont display and print window too small
     if (columns < 80 || rows < 12)
     {

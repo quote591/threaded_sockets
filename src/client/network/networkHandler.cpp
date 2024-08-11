@@ -54,12 +54,10 @@ bool NetworkHandler::m_Create(std::string hostName, std::string port)
     if (!ISVALIDSOCKET(socket_peer)) {
         std::stringstream isValidSocketSS; isValidSocketSS << "error: socket() failed. errno: (" << GETSOCKETERRNO() << ")";
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", isValidSocketSS.str());
+        WSACleanup();
         return false;
     }
-    // // Set socket into non-blocking mode
-    // u_long iMode = 1;
-    // if (ioctlsocket(socket_peer, FIONBIO, &iMode) != NO_ERROR)
-    //     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "Error setting socket as non-blocking");
+
 
     return true;
 }
@@ -78,9 +76,22 @@ bool NetworkHandler::m_Connect()
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", connectSS.str());
         return false;
     }
+    
+    
     freeaddrinfo(peer_address);
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
     NetworkHandler::s_SetConnectedFlag(true);
+
+    // Set socket into non-blocking mode
+    // We enable it after the connect call as we do not want 
+    u_long iMode = 1;
+    std::string ioctlsocketMsg;
+    if (ioctlsocket(socket_peer, FIONBIO, &iMode) != NO_ERROR)
+        ioctlsocketMsg = "Error setting socket as non-blocking";
+    else
+        ioctlsocketMsg = "Set socket into non-blocking mode";
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", ioctlsocketMsg);
+
     return true;
 }
 
@@ -102,28 +113,45 @@ std::string NetworkHandler::m_RecieveMessages(void)
     {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Packet available");
         
-        int readBufferSize = 512;
+        int readBufferSize = 4;
         char* readBuffer = (char*)calloc(readBufferSize, sizeof(char));
         int bytesRecived = 0;
+        int totalBytes = 0;
 
-        // int retCode2;
-        // do {
-        //     // Resize the read in buffer
-        //     if (bytesRecived >= readBufferSize){
-        //         // Double input buffer size
-        //         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Double");
+        do {
+            // Our buffer is maxed, we need to extend it
+            if (totalBytes >= readBufferSize)
+            {
+                std::stringstream ss; ss << "Buffer maxed, doubling size (" << readBufferSize << "bytes -> " << readBufferSize*2 << "bytes)";
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", ss.str());
 
-        //         readBuffer = (char*)realloc(readBuffer, readBufferSize *= 2);
-        //     }
-        //     bytesRecived = recv(socket_peer, readBuffer, readBufferSize, 0);
-        //     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Marker");
-        //     retCode2 = WSAPoll(fds, 1, 1);
-        // } while (retCode2 != 0);
+                // Fails
+                readBuffer = (char*)realloc(readBuffer, (readBufferSize * 2));
+                // Zero out our new memory
+                memset(readBuffer + readBufferSize, '\0', readBufferSize);
+                // Extend buffer var
+                readBufferSize*=2; 
+            }
 
-        bytesRecived = recv(socket_peer, readBuffer, readBufferSize, 0);
+            // Recieve the data from the socket
+            bytesRecived = recv(socket_peer, readBuffer+totalBytes, readBufferSize/2, 0);
+            
+            // Non-blocking sockets throw an error when they have no data to provice. 
+            if (bytesRecived == -1)
+            {
+                // Acknowledge error and return
+                GETSOCKETERRNO();
+                Log::s_GetInstance()->m_LogWrite("NetworkHandle::m_RecieveMessages()", "Finished message. Return");
+                break;
+            }
+            totalBytes += bytesRecived;
+        } while (true);
+        
+        // If we recieve a message and get 0 bytes. The socket connection is closed.
+
 
         std::string bytesRecvMsg = "Bytes recieved: ";
-        bytesRecvMsg += std::to_string(bytesRecived);
+        bytesRecvMsg += std::to_string(totalBytes);
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", bytesRecvMsg);
 
         std::string msg = readBuffer;

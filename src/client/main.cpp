@@ -55,6 +55,17 @@ void HandleNetwork(void)
             p_messageHandler->m_PushMessageToDisplay(recvMsg);
             Display::s_DrawMessageDisplay(p_messageHandler);
         }
+        // We check if there is a disconnect
+        else
+        {
+            // Disconnected
+            if (NetworkHandler::s_GetConnectedFlag() == false)
+            {
+                // Update the info 
+                Display::s_DrawInfoDisplay(p_messageHandler);
+                return; // Exit out
+            }
+        }
         // We check if there are any messages that are needed to be sent
         // if messageHandler has any messages on the queue then we should send them
 
@@ -109,11 +120,6 @@ int main()
     // Lifetime of all threads is managed by the main thread
     std::thread messageThread(MessageHandler::m_HandleInput, p_messageHandler);
 
-    // // Message testing
-    // std::string messages[] = {"Message 1", "Test message", "Hello how are we?", "This is cool i guesss."};
-    // for (std::string msg : messages)
-    //     mh->m_PushMessageToDisplay(msg);
-
 
     Display::s_SetTerminalModeRaw();
 
@@ -124,11 +130,13 @@ int main()
     std::thread networkThread(HandleNetwork);
     
 
-    // mh->m_ReturnThreads();
+    // Cleanup
     messageThread.join();
-    returnThreads^=1;
 
-    // 
+    // If the return threads flag has not been enabled then we can enable it here
+    if (returnThreads == 0)
+        returnThreads^=1;
+
     drawThread.join();
     networkThread.join();
 

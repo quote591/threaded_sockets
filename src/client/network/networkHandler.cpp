@@ -148,6 +148,11 @@ std::string NetworkHandler::m_RecieveMessages(void)
         } while (true);
         
         // If we recieve a message and get 0 bytes. The socket connection is closed.
+        if (totalBytes == 0)
+        {
+            NetworkHandler::s_SetConnectedFlag(false);
+            return "";
+        }
 
 
         std::string bytesRecvMsg = "Bytes recieved: ";

@@ -32,6 +32,8 @@ public:
     // @brief Thread safe get the instance of the class
     // @return pointer to the instance of the class. If not created it will do
     static Log* s_GetInstance(void);
+
+    
 };
 
 

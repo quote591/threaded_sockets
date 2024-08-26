@@ -48,7 +48,7 @@ void Log::m_LogWrite(std::string moduleFunction, std::string message)
     
     // [00:00:001][modulesFunction] : message (threadID)
     ss << "[" << mins_elapsed << ":" << sec_elapsed << ":" << mss_elapsed << "]"
-        << "[" << moduleFunction << "\t] : " << message << "(th_id " << std::this_thread::get_id() << ")" << "\n";
+        << "[" << moduleFunction << "\t] : " << message << " (th_id " << std::this_thread::get_id() << ")" << "\n";
     
     // std::cout << ss.str() << " " << ss.str().size() << std::endl;
     f.write(ss.str().c_str(), ss.str().size());

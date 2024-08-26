@@ -19,21 +19,21 @@ private:
     std::mutex writeMutex;
     static std::mutex instanceMutex;
 public:
+    // Singleton 
+    void operator=(const Log&) = delete;
 
-    // @brief Logging function that writes message into file within logs/
-    // @param modelFunction - string of the method or system making the log
-    // @param message - log message
+
+    /// @brief Thread safe get the instance of the class
+    /// @return pointer to the instance of the class. If not created it will do
+    static Log* s_GetInstance(void);
+
+
+    /// @brief Logging function that writes message into file within logs/
+    /// @param modelFunction - string of the method or system making the log
+    /// @param message - log message
     template<typename... Args>
     void m_LogWrite(const std::string& moduleFunction, Args&&... message);
 
-    // Singleton 
-    void operator=(const Log&) = delete;
-    
-    // @brief Thread safe get the instance of the class
-    // @return pointer to the instance of the class. If not created it will do
-    static Log* s_GetInstance(void);
-
-    
 };
 
 

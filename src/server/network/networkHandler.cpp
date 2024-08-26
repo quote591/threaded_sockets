@@ -249,18 +249,12 @@ bool NetworkHandler::m_Accept()
     int retCode = WSAPoll(fds, 1, 1);
     if (retCode == SOCKET_ERROR)
     {
-        printf("Error occured, errno: %d", errno);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Accept()", "WSAPoll() Error: ", GETSOCKETERRNO());
         return false;
     }
     else if (retCode == 0)
-    {
-        // printf("Nothing yet.");
         return false; // Non-blocking socket says there is nothing (no error)
-    }
-    else
-    {
-        printf("Ready to accept");
-    }
+
 
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Accept()", "Started accepting...");
 	/* we have to store the clients connection info */
@@ -293,8 +287,6 @@ bool NetworkHandler::m_Accept()
     // Might have to add to acception vector in the NetworkHandler since we will fall out of scope after this is launched 
     m_AddAsyncConnectionJob(std::async(std::launch::async, m_AsyncNewConnectionHandle, this, socketClient, address_buffer));
 
-	printf("%s\n", address_buffer);
-
     return true;
 }
 
@@ -309,8 +301,7 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
     int retCode = WSAPoll(fds, 1, 1);
     if (retCode == SOCKET_ERROR)
     {
-        std::stringstream recvSS; recvSS << "Error occured WSAPoll(): " << errno;
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", recvSS.str());
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Error occured WSAPoll(): ", GETSOCKETERRNO());
         return false;
     }
     // We have a packet to process

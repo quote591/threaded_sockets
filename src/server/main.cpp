@@ -37,7 +37,6 @@ void HandleNetwork(void)
     
     // Check for incoming connections
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     p_networkHandler = new NetworkHandler();
     p_networkHandler->m_Create(port);
     p_networkHandler->m_Listen(10);
@@ -83,7 +82,6 @@ void HandleNetwork(void)
 
 int main()
 {
-
     // Another thread needed for handing of network traffic.
     std::thread networkThread(HandleNetwork);
     
@@ -99,6 +97,7 @@ int main()
                 break;
             }
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
     }
     // Indicate to thread to return
     returnThreads^=1;

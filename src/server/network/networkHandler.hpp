@@ -18,6 +18,22 @@
 // Chat related
 #define MAXALIASSIZE 10
 
+enum MessageType: unsigned char
+{
+    // Alias
+    ALIASSET,   // Client -> Server Setting alias 
+    ALIASACK,   // Server -> Client Accept alias
+    ALIASDNY,   // Server -> Client Reject alias
+
+    // General message
+    MESSAGE,    // Client <-> Server
+
+    // Server info
+    CONNUSERS,  // Server -> Client Number of connected users
+
+};
+
+
 class NetworkedUser
 {
 private:

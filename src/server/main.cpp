@@ -47,95 +47,42 @@ void HandleNetwork(void)
 
     while(true)
     {
+        std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
+
         p_networkHandler->m_Accept();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         int currentUsers = p_networkHandler->m_GetNetworkedUsersCount();
         // We have had new users join, update the connectedUsersCopy list
         if (currentUsers != lastCheckedConnUsers)
         {
+            Log::s_GetInstance()->m_LogWrite("Thread HandleNetwork()", "Number of conn users changed: Curr:", currentUsers, " last value: ", lastCheckedConnUsers);
             connectedUsersCopy = p_networkHandler->m_GetNetworkedUsers();
+            lastCheckedConnUsers = currentUsers;
         }
 
+        int i = 0;
         // Check for incoming messages
         for (auto& user : connectedUsersCopy)
         {
-            std::string message = p_networkHandler->m_RecieveMessage(user);
-            // User disconnected
-            if (message == "")
-            {
-                // TODO p_networkHandler->m_DisconnectUser(user);
-            }
-            else
+            std::string message;
+            // If we have a message, the string will be set
+            if (p_networkHandler->m_RecieveMessage(user, message))
             {
                 p_networkHandler->m_BroadcastMessage(user, message);
             }
+            i++;
         }
-
 
         if (returnThreads)
         {
             // Shutdown connections and return
-            
             return;
         }
     }
-
-    // p_networkHandler = new NetworkHandler();
-
-    // p_networkHandler->m_Create(hostname, port);
-    
-    // // Keep trying to connect until we do
-    // while (true)
-    // {
-    //     if(p_networkHandler->m_Connect())
-    //         break;
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
-    // }
-    // // Recv and send any data that is available
-    // while (true)
-    // {
-    //     // Recv message and add to the message display
-    //     std::string recvMsg = p_networkHandler->m_RecieveMessages();
-    //     if (recvMsg != "")
-    //     {
-    //         p_messageHandler->m_PushMessageToDisplay(recvMsg);
-    //         Display::s_DrawMessageDisplay(p_messageHandler);
-    //     }
-    //     // We check if there are any messages that are needed to be sent
-    //     // if messageHandler has any messages on the queue then we should send them
-
-    //     if (p_messageHandler->m_GetSizeofSendQueue() > 0)
-    //     {
-    //         p_networkHandler->m_Send(p_messageHandler->m_GetMessageFromSendQueue());
-    //     }
-
-    //     // Here we also deal with any network errors
-
-    //     // Return threads
-    //     if (returnThreads)
-    //     {
-    //         p_networkHandler->m_Close();
-    //         return;
-    //     }
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
-    // }
 }
 
 int main()
 {
-    // Server control loop
-    // 
-    // 1 Main thread that spools up the network handler thread.
-    // Other thread listens for the input to close it (esc key)
-    //
-    // Network handler.
-    // Do we have incoming connection request?
-    //    - Async task - Get name packet and add to connected clients list
-    // Do we have any connected clients?
-    //    - For every client, do they have a message to send us?
-    //         - If so, we broadcast the message to all other connected clients, including the one who sent it to us
-    // 
 
     // Another thread needed for handing of network traffic.
     std::thread networkThread(HandleNetwork);
@@ -157,9 +104,11 @@ int main()
     returnThreads^=1;
     p_networkHandler->m_Shutdown();
     networkThread.join();
+    Log::s_GetInstance()->m_LogWrite("Main thread", "Network thread shutdown.");
 
     // Free networkHandler
     delete(p_networkHandler);
     
+    Log::s_GetInstance()->m_LogWrite("Main thread", "exit 0");   
     return 0;
 }

@@ -8,6 +8,7 @@
 #include <vector>
 #include <mutex>
 #include <cstring>
+#include <future>
 
 // Network specific macros
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
@@ -16,8 +17,6 @@
 
 // Chat related
 #define MAXALIASSIZE 10
-
-
 
 class NetworkedUser
 {
@@ -58,68 +57,97 @@ class NetworkHandler
 {
 private:
     struct addrinfo* peer_address;
-
-    std::vector<spNetworkedUser> connectedUsers;
-    std::mutex connectedUserVectorMutex;
-
-    void m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST]);
-
     SOCKET m_serverSocket;
 
+    std::mutex connectedUserVectorMutex;
+    std::vector<spNetworkedUser> connectedUsers;
+
+    std::mutex asyncConnectionJobsMutex;
+    std::vector<std::future<void>> asyncConnectionJobs;
+
+
+    /// @brief Handle new connection (accept) asyncronously
+    /// @param userSocket socket handle
+    /// @param address network address
+    void m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST]);
 
 public:
 
-    // Threadsafe actions on connectedUsers vector:
-    void m_AddNetworkedUser(spNetworkedUser user);
+    /// @brief Attempt to add a new user. Will reject if the username is taken
+    /// @param user The shared pointer of the new user we are attempting to add
+    /// @return bool - success (failed means username taken)
+    bool m_AttemptAddNetworkedUser(spNetworkedUser user);
 
+
+    /// @brief Return a copy of the connected user vector
+    /// @return vector copy of connected users
     std::vector<spNetworkedUser> m_GetNetworkedUsers(void);
 
+
+    /// @brief Get the number of connected users (with registered usernames)
+    /// @return int - number of connected users
     int m_GetNetworkedUsersCount(void);
     
+
+    /// @brief Clear the connected user vector thread safe
     void m_ClearNetworkedUserVector(void);
 
-    // Needs to be thread safe
-    bool m_IsUsernameTaken(const std::string& username);
+    
+    /// @brief Holds the future return of a std::asnyc
+    /// @param job the std::async return to be passed
+    void m_AddAsyncConnectionJob(std::future<void>&& job);
 
-    // @brief Sets any socket as either blocking or non-blocking
-    // @param blocking boolean either true for blocking or false for non-blocking
+
+    /// @brief Sets any socket as either blocking or non-blocking
+    /// @param blocking boolean either true for blocking or false for non-blocking
     void SetSocketBlocking(bool blocking, SOCKET socket);
 
-    // @brief Creates the socket and policies
-    // @param port port number string
-    // @return bool - success
+
+    /// @brief Creates the socket and policies
+    /// @param port port number string
+    /// @return bool - success
     bool m_Create(std::string port);
 
-    // @brief will set the socket to listen to n amount of connections
-    // @param connections will set the number of users the server will allow to queue to connect at any one point
-    // @return bool - success
+
+    /// @brief will set the socket to listen to n amount of connections
+    /// @param connections will set the number of users the server will allow to queue to connect at any one point
+    /// @return bool - success
     bool m_Listen(int connections);
 
-    // @brief Accept any incoming connections
-    // @return bool - success
+
+    /// @brief Accept any incoming connections
+    /// @return bool - success
     bool m_Accept(void);
 
-    // @brief Check for a message from a user, if there is one we can recieve it
-    // @param connectedUser is the handle to check the connected user
-    // @return string - recieved message, if message is empty then connection is closed
-    std::string m_RecieveMessage(spNetworkedUser connectedUser);
 
-    // @brief Send a message to all connected users
-    // @param Sender NetworkedUser struct of the users sending the message
-    // @param message string to send
-    // @return bool - success
+    /// @brief Check for a message from a user, if there is one we can recieve it
+    /// @param connectedUser is the handle to check the connected user
+    /// @param messageOut is the returned message, will only be set if method return true
+    /// @return bool - if there was a message
+    bool m_RecieveMessage(spNetworkedUser connectedUser, std::string& messageOut);
+
+
+    /// @brief Send a message to all connected users
+    /// @param Sender NetworkedUser struct of the users sending the message
+    /// @param message string to send
+    /// @return bool - success
     bool m_BroadcastMessage(spNetworkedUser sender, std::string message);
 
-    // @brief Send message to certain connected user
-    // @param connectedUser is who to send the message to
-    // @param message is the message
-    // @return bool - success
+
+    /// @brief Send message to certain connected user
+    /// @param connectedUser is who to send the message to
+    /// @param message is the message
+    /// @return bool - success
     bool m_Send(SOCKET recipient, std::string message);
-    bool m_Send(spNetworkedUser recipient, std::string message);
 
-    bool m_DisconnectUser(spNetworkedUser connectedUser);
 
-    // @brief Closes all connections and clean up
-    // @return bool - success
+    /// @brief 
+    /// @param userToDisconnect 
+    /// @return bool - success
+    bool m_DisconnectUser(spNetworkedUser userToDisconnect);
+
+
+    /// @brief Closes all connections and clean up
+    /// @return bool - success
     bool m_Shutdown(void);
 };

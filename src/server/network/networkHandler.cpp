@@ -3,9 +3,9 @@
 
 #include <sstream>
 #include <thread>
-#include <future> // async
 #include <memory>
 #include <iomanip>
+#include <algorithm>
 
 #define UNAME_MIN_SIZE 3
 #define UNAME_MAX_SIZE 8
@@ -24,10 +24,11 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
 
     // Alias packet
     // alias:username\0
+    std::shared_ptr<NetworkedUser> userStruct;
 
     while (true)
     {    
-
+        Log::s_GetInstance()->m_LogWrite("Async", "Socket: ", static_cast<int>(userSocket));
         int recvSize = recv(userSocket, aliasBuffer, sizeof(aliasBuffer)-1, 0);
         if (recvSize == -1)
         {
@@ -42,43 +43,55 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
         }
         Log::s_GetInstance()->m_LogWrite("asnyc conncetion", "Packet size: ", recvSize, " ");
 
-        // TODO, we need to check if anyone else has that name, if not we good 
         // Username has to between 3 and 8 characters, if its not we will 
         if (std::strncmp(aliasBuffer, namePrefix, namePrefixSize) || 
             recvSize < static_cast<int>(namePrefixSize + UNAME_MIN_SIZE) || 
             recvSize > static_cast<int>(namePrefixSize + UNAME_MAX_SIZE))
         {
-            this->m_Send(userSocket, "Username not acceptable - needs to be 3 to 8 chars long and unique from other users.");
+            this->m_Send(userSocket, "Username not acceptable - needs to be 3 to 8 chars long.");
         }
         // Username is fine
         else
-            break;
-    }
+        {
+            char alias[11];
+            std::strcpy(alias, aliasBuffer+namePrefixSize);
 
+            userStruct = std::make_shared<NetworkedUser>(
+                userSocket, alias, time(NULL), address
+            );
+
+            // Attempt to add the username, check for uniqueness
+            if (m_AttemptAddNetworkedUser(userStruct))
+                break;
+            else
+                this->m_Send(userSocket, "Username not acceptable - needs to be unique.");
+        }
+        std::memset(aliasBuffer, 0, sizeof(aliasBuffer)); // If username was not accepted, we null the memory again
+    }
     SetSocketBlocking(false, userSocket);
 
-    char alias[11];
-    std::strcpy(alias, aliasBuffer+6);
-
-    Log::s_GetInstance()->m_LogWrite("NetworkHanlder::m_AsyncNewConnectionHandle",
-        "New user connected: ", alias, " from ", address);
-
-    std::shared_ptr<NetworkedUser> userStruct = std::make_shared<NetworkedUser>(
-        userSocket, alias, time(NULL), address
-    );
-
-    m_AddNetworkedUser(userStruct);
     std::stringstream ssConnectionMsg;
     ssConnectionMsg << userStruct->m_GetUserAlias() << " connected.";
     m_BroadcastMessage(nullptr, ssConnectionMsg.str());
 }
 
 
-void NetworkHandler::m_AddNetworkedUser(spNetworkedUser user)
+bool NetworkHandler::m_AttemptAddNetworkedUser(spNetworkedUser userIn)
 {
     std::lock_guard<std::mutex> lock(connectedUserVectorMutex);
-    connectedUsers.push_back(user);
 
+    auto it = std::find_if(std::begin(connectedUsers), std::end(connectedUsers), [&userIn](const spNetworkedUser& username)
+    {
+        return username->m_GetUserAlias() == userIn->m_GetUserAlias();
+    });
+    // Found
+    if (it != std::end(connectedUsers))
+    {
+        return false;
+    }
+
+    connectedUsers.push_back(userIn);
+    return true;
 }
 
 
@@ -93,6 +106,7 @@ int NetworkHandler::m_GetNetworkedUsersCount(void)
 {
     std::lock_guard<std::mutex> lock(connectedUserVectorMutex);
     return connectedUsers.size();
+    
 }
 
 
@@ -102,6 +116,27 @@ void NetworkHandler::m_ClearNetworkedUserVector(void)
     connectedUsers.clear();
 }
 
+
+void NetworkHandler::m_AddAsyncConnectionJob(std::future<void>&& job)
+{
+    std::lock_guard<std::mutex> lock(asyncConnectionJobsMutex);
+
+    // If we hit a certain amount of asyncconnection jobs, we have to remove some
+    if (asyncConnectionJobs.size() > 3)
+    {
+        for (auto it = std::begin(asyncConnectionJobs); it != std::end(asyncConnectionJobs);)
+        {
+            if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            {
+                it = asyncConnectionJobs.erase(it);
+            }
+            else
+                it++;
+        }
+    }
+    // Add connection job
+    asyncConnectionJobs.push_back(std::forward<std::future<void>>(job));
+}
 
 void NetworkHandler::SetSocketBlocking(bool blocking, SOCKET socket)
 {
@@ -256,7 +291,7 @@ bool NetworkHandler::m_Accept()
     
     // Future must be kept otherwise the async will not complete
     // Might have to add to acception vector in the NetworkHandler since we will fall out of scope after this is launched 
-    auto result = std::async(std::launch::async, m_AsyncNewConnectionHandle, this, socketClient, address_buffer);
+    m_AddAsyncConnectionJob(std::async(std::launch::async, m_AsyncNewConnectionHandle, this, socketClient, address_buffer));
 
 	printf("%s\n", address_buffer);
 
@@ -265,7 +300,7 @@ bool NetworkHandler::m_Accept()
 
 
 
-std::string NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser)
+bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string& messageOut)
 {
     WSAPOLLFD fds[1];
     fds[0].fd = connectedUser->m_GetUserSocket();
@@ -276,6 +311,7 @@ std::string NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser)
     {
         std::stringstream recvSS; recvSS << "Error occured WSAPoll(): " << errno;
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", recvSS.str());
+        return false;
     }
     // We have a packet to process
     else if (retCode != 0)
@@ -291,45 +327,50 @@ std::string NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser)
             // Our buffer is maxed, we need to extend it
             if (totalBytes >= readBufferSize)
             {
-                std::stringstream ss; ss << "Buffer maxed, doubling size (" << readBufferSize << "bytes -> " << readBufferSize*2 << "bytes)";
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", ss.str());
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", 
+                    "Buffer maxed, doubling: ", readBufferSize, " bytes -> ", readBufferSize*2, " bytes");
 
                 // Fails
                 readBuffer = (char*)realloc(readBuffer, (readBufferSize * 2));
                 // Zero out our new memory
                 memset(readBuffer + readBufferSize, '\0', readBufferSize);
-                // Extend buffer var
                 readBufferSize*=2; 
             }
 
             // Recieve the data from the socket
             bytesRecived = recv(connectedUser->m_GetUserSocket(), readBuffer+totalBytes, readBufferSize/2, 0);
             
-            // Non-blocking sockets throw an error when they have no data to provice. 
+            // -1 = finished async recv
             if (bytesRecived == -1)
             {
-                // Acknowledge error and return
+                // Acknowledge error
                 GETSOCKETERRNO();
-                Log::s_GetInstance()->m_LogWrite("NetworkHandle::m_RecieveMessage()", "Finished message. Return");
                 break;
             }
+            
+            else if (bytesRecived == 0)
+                break;
+
             totalBytes += bytesRecived;
         } while (true);
         
-        std::string bytesRecvMsg = "Bytes recieved: ";
-        bytesRecvMsg += std::to_string(totalBytes);
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", bytesRecvMsg);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
 
-        // If we recieve a message and get 0 bytes. The socket connection is closed.
-        std::string msg = (totalBytes == 0) ? "" : readBuffer;
+        // No bytes recieved then we treat as disconnect
+        if (totalBytes == 0)
+        {
+            this->m_DisconnectUser(connectedUser);
+            return false;
+        }
+
+        // Message set
+        messageOut = readBuffer;
         free(readBuffer);
 
-        return msg;            
+        return true;
     }
-    // Nothing
-    return "";
-
-    return std::string();
+    else
+        return false;
 }
 
 
@@ -346,12 +387,16 @@ bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string mess
     // Non-server message message
     if (sender != nullptr)
     {
+        Log::s_GetInstance()->m_LogWrite("Broadcast", "Nullptr sender");
         // We put the user name in it
         ssMessage << sender->m_GetUserAlias() << ": ";
     }
     ssMessage << message;
 
     bool success = true;
+
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_BroadcastMessage()",
+                                     "Send message: ", ssMessage.str(), " to ", this->m_GetNetworkedUsersCount(), " users.");
 
     // For every connected socket, we send our message.
     for (auto& user : this->m_GetNetworkedUsers())
@@ -363,11 +408,6 @@ bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string mess
             success = false;
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_BroadcastMessage()", 
                 "Message failed to send to ", user->m_GetUserAddress(), " - ", user->m_GetUserAlias(), " Message: ", ssMessage.str());
-        }
-        else
-        {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_BroadcastMessage()",
-                "Send message: ", ssMessage.str(), " to ", this->m_GetNetworkedUsersCount(), " users. (", bytesSent, " bytes)");
         }
     }
     return success;
@@ -387,6 +427,32 @@ bool NetworkHandler::m_Send(SOCKET recipient, std::string message)
     return true;
 }
 
+bool NetworkHandler::m_DisconnectUser(spNetworkedUser userToDisconnect)
+{
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_DisconnectUser()", "Disconnecting user: ", userToDisconnect->m_GetUserAlias(), " at ", userToDisconnect->m_GetUserAddress());
+
+    connectedUserVectorMutex.lock();
+    auto it = std::find_if(std::begin(connectedUsers), std::end(connectedUsers), [&userToDisconnect](spNetworkedUser& user)
+    {
+        return user->m_GetUserSocket() == userToDisconnect->m_GetUserSocket();
+    });
+
+    // found, delete
+    if (it != std::end(connectedUsers))
+    {
+        connectedUsers.erase(it);
+        connectedUserVectorMutex.unlock();
+
+        std::stringstream ssDisconnectMsg;
+        ssDisconnectMsg << userToDisconnect->m_GetUserAlias() << " has disconnected.";
+        m_BroadcastMessage(nullptr, ssDisconnectMsg.str());
+        
+        return true;
+    }
+
+    connectedUserVectorMutex.unlock();
+    return false;
+}
 
 bool NetworkHandler::m_Shutdown(void)
 {
@@ -395,6 +461,8 @@ bool NetworkHandler::m_Shutdown(void)
     {
         CLOSESOCKET(users->m_GetUserSocket());
     }
+    this->m_ClearNetworkedUserVector();
+
 #ifdef _WIN32
 WSACleanup();
 #endif

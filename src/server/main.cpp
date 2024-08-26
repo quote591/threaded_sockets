@@ -35,29 +35,48 @@ void HandleNetwork(void)
     //
     // Yes, we can broadcast
     
-    
     // Check for incoming connections
-
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     p_networkHandler = new NetworkHandler();
     p_networkHandler->m_Create(port);
     p_networkHandler->m_Listen(10);
 
-    // TODO put within method (should be private)
-    p_networkHandler->SetSocketBlocking(false, p_networkHandler->m_serverSocket);
+    int lastCheckedConnUsers = 0;
+    std::vector<spNetworkedUser> connectedUsersCopy = p_networkHandler->m_GetNetworkedUsers();
+
     while(true)
     {
         p_networkHandler->m_Accept();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        std::string name = "World";
-        Log::s_GetInstance()->m_LogWrite("TESTING", "Hello ", name, 10, "   ", "Testmessage ", 'c', 3.20f, " " , 021);
+        int currentUsers = p_networkHandler->m_GetNetworkedUsersCount();
+        // We have had new users join, update the connectedUsersCopy list
+        if (currentUsers != lastCheckedConnUsers)
+        {
+            connectedUsersCopy = p_networkHandler->m_GetNetworkedUsers();
+        }
+
+        // Check for incoming messages
+        for (auto& user : connectedUsersCopy)
+        {
+            std::string message = p_networkHandler->m_RecieveMessage(user);
+            // User disconnected
+            if (message == "")
+            {
+                // TODO p_networkHandler->m_DisconnectUser(user);
+            }
+            else
+            {
+                p_networkHandler->m_BroadcastMessage(user, message);
+            }
+        }
+
 
         if (returnThreads)
         {
             // Shutdown connections and return
-            // p_networkHandler->m_Close();
+            
             return;
         }
     }
@@ -136,6 +155,7 @@ int main()
     }
     // Indicate to thread to return
     returnThreads^=1;
+    p_networkHandler->m_Shutdown();
     networkThread.join();
 
     // Free networkHandler

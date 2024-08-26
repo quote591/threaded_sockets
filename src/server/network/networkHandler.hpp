@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 #include <mutex>
+#include <cstring>
 
 // Network specific macros
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
@@ -16,8 +17,7 @@
 // Chat related
 #define MAXALIASSIZE 10
 
-// Shared pointer of NetworkedUser
-using spNetworkedUser = std::shared_ptr<NetworkedUser>;
+
 
 class NetworkedUser
 {
@@ -34,16 +34,25 @@ public:
         std::strcpy(address, addr_in);
     }
 
-    SOCKET GetUserSocket(void)
+    SOCKET m_GetUserSocket(void) const 
     {
         return m_userSocket;
     }
 
-    std::string m_GetUserAlias(void)
+    std::string m_GetUserAlias(void) const 
     {
         return m_alias;
     }
+
+    const char* m_GetUserAddress(void) const 
+    {
+        return address;
+    }
+
 };
+
+// Shared pointer of NetworkedUser
+using spNetworkedUser = std::shared_ptr<NetworkedUser>;
 
 class NetworkHandler
 {
@@ -53,11 +62,12 @@ private:
     std::vector<spNetworkedUser> connectedUsers;
     std::mutex connectedUserVectorMutex;
 
-
     void m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST]);
 
-public:
     SOCKET m_serverSocket;
+
+
+public:
 
     // Threadsafe actions on connectedUsers vector:
     void m_AddNetworkedUser(spNetworkedUser user);
@@ -65,7 +75,11 @@ public:
     std::vector<spNetworkedUser> m_GetNetworkedUsers(void);
 
     int m_GetNetworkedUsersCount(void);
+    
+    void m_ClearNetworkedUserVector(void);
 
+    // Needs to be thread safe
+    bool m_IsUsernameTaken(const std::string& username);
 
     // @brief Sets any socket as either blocking or non-blocking
     // @param blocking boolean either true for blocking or false for non-blocking
@@ -91,17 +105,19 @@ public:
     std::string m_RecieveMessage(spNetworkedUser connectedUser);
 
     // @brief Send a message to all connected users
+    // @param Sender NetworkedUser struct of the users sending the message
     // @param message string to send
     // @return bool - success
-    bool m_BroadcastMessage(std::string message);
+    bool m_BroadcastMessage(spNetworkedUser sender, std::string message);
 
     // @brief Send message to certain connected user
     // @param connectedUser is who to send the message to
     // @param message is the message
     // @return bool - success
-    bool m_Send(spNetworkedUser connectedUser, std::string message);
+    bool m_Send(SOCKET recipient, std::string message);
+    bool m_Send(spNetworkedUser recipient, std::string message);
 
-    // bool m_DisconnectUser(NetworkedUser* connectedUser)
+    bool m_DisconnectUser(spNetworkedUser connectedUser);
 
     // @brief Closes all connections and clean up
     // @return bool - success

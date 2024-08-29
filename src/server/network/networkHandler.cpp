@@ -12,10 +12,6 @@
 #define UNAME_MAX_SIZE 8
 
 
-constexpr const char* namePrefix = "alias:";
-constexpr size_t namePrefixSize = std::char_traits<char>::length(namePrefix); // complie time compute
-
-
 std::string MessageType::GetMessageType(unsigned char msgByte)
 {
     switch (msgByte)
@@ -32,11 +28,11 @@ std::string MessageType::GetMessageType(unsigned char msgByte)
 
 void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST])
 {
-    this->m_Send(MessageType::ALIASSET, userSocket, "Welcome, please submit a username. Like so - alias:name");
+    this->m_Send(MessageType::ALIASSET, userSocket, "Welcome, please submit a username.");
 
     SetSocketBlocking(true, userSocket);
     // Get alias packet
-    char aliasBuffer[namePrefixSize+UNAME_MAX_SIZE];
+    char aliasBuffer[UNAME_MAX_SIZE];
     std::memset(aliasBuffer, 0, sizeof(aliasBuffer));
 
     // Alias packet
@@ -58,21 +54,17 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
             return;
         }
 
-        // Username has to between 3 and 8 characters, if its not we will 
-        if (std::strncmp(aliasBuffer, namePrefix, namePrefixSize) || 
-            recvSize < static_cast<int>(namePrefixSize + UNAME_MIN_SIZE) || 
-            recvSize > static_cast<int>(namePrefixSize + UNAME_MAX_SIZE))
+        // Username has to between 3 and 8 characters
+        if ((recvSize < UNAME_MIN_SIZE+1) || (recvSize > UNAME_MAX_SIZE-1))
         {
             this->m_Send(MessageType::ALIASDNY, userSocket, "Username not acceptable - needs to be 3 to 8 chars long.");
         }
         // Username is fine
         else
         {
-            char alias[11];
-            std::strcpy(alias, aliasBuffer+namePrefixSize);
-
+            // +1 to get rid of the prefix
             userStruct = std::make_shared<NetworkedUser>(
-                userSocket, alias, time(NULL), address
+                userSocket, aliasBuffer+1, time(NULL), address
             );
 
             // Attempt to add the username, check for uniqueness
@@ -86,7 +78,7 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
     SetSocketBlocking(false, userSocket);
 
     // Alias is accpeted, send an acknowledgement to the user and broadcast to all users
-    m_Send(MessageType::ALIASACK, userSocket, "Accepted");
+    m_Send(MessageType::ALIASACK, userSocket, "");
 
     std::stringstream ssConnectionMsg;
     ssConnectionMsg << userStruct->m_GetUserAlias() << " connected.";
@@ -364,7 +356,7 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
         } while (true);
 
         // Pass the memory to a string type (RAII)
-        std::string readBufferString = readBuffer;
+        std::string readBufferString(readBuffer, totalBytes);
         free(readBuffer);
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
@@ -395,7 +387,7 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
             case MessageType::CONNUSERS:
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", msgType, ")");
+                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", (int)msgType, ")");
                 break;
             }
         }
@@ -408,7 +400,6 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
 bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUser sender, std::string message)
 {
     std::stringstream ssMessage;
-    ssMessage << MessageType::MESSAGE;
 
     // Get current time
     auto now = std::chrono::system_clock::now();
@@ -443,10 +434,11 @@ bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUs
     return success;
 }
 
-
 bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, std::string message)
 {
-    int bytesSent = send(recipient, message.c_str(), message.size(), 0);
+    std::string fullMessage = static_cast<char>(messageType) + message;
+
+    int bytesSent = send(recipient, fullMessage.c_str(), fullMessage.size(), 0);
     if (bytesSent == -1)
     {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Send failed. Err: ", GETSOCKETERRNO());

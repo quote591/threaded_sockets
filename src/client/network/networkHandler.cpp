@@ -1,5 +1,6 @@
 #include "networkHandler.hpp"
 #include "../logging.hpp"
+#include "../messageHandler.hpp"
 
 #include <sstream>
 
@@ -164,7 +165,7 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
         } while (true);
 
         // Pass the memory to a string type (RAII)
-        std::string readBufferString = readBuffer;
+        std::string readBufferString(readBuffer, totalBytes);
         free(readBuffer);
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
@@ -177,26 +178,38 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
             return false;
         }
 
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Message: ", readBufferString);
+
         // We now handle the message accordingly
         // Check first byte
         unsigned char msgType = readBufferString[0];
         switch (msgType)
         {
-            // Regular message
-            case MessageType::MESSAGE:
+            // Print out message
+            case MessageType::ALIASACK:
             {
-                messageOut = readBufferString.substr(1, readBufferString.size());
+                // TODO update alias info heading
+                MessageHandler::m_aliasSet = true;
+                messageOut = "You've joined the chat room.";
                 return true;
             }
 
-            // Should not be recieving alias packets or connuserspackets
             case MessageType::ALIASSET:
-            case MessageType::ALIASACK:
             case MessageType::ALIASDNY:
+            case MessageType::MESSAGE:
+            {
+                messageOut = readBufferString.substr(1, readBufferString.size()-1);
+                return true;
+            }
+
             case MessageType::CONNUSERS:
+            {
+                // TODO Update connusers info heading
+                return false;
+            }
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", msgType, ")");
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(msgType), "(", (int)msgType, ")");
                 break;
             }
         }
@@ -209,7 +222,7 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
 bool NetworkHandler::m_Send(unsigned char msgType, const std::string& msg)
 {
     std::string message = static_cast<char>(msgType) + msg;
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Sendt: '", msg, "' (", msg.size(), " bytes)");
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Send: '", msg, "' (", msg.size(), " bytes)");
     return send(socket_peer, message.c_str(), message.size(), 0);
 }
 

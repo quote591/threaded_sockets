@@ -2,11 +2,14 @@
 
 #include "display.hpp"
 #include "logging.hpp"
+#include "network/networkHandler.hpp" // For messageTypes
 
 #include <sstream>
 #include <thread>
 #include <conio.h> // _kbhit(), _getch()
 
+// Static init
+std::atomic<bool> MessageHandler::m_aliasSet(false);
 
 MessageHandler::MessageHandler()
 {
@@ -67,10 +70,10 @@ int MessageHandler::m_GetInputBufferSize(void)
 }
 
 
-void MessageHandler::m_PushMessageToSendQueue(std::string msg)
+void MessageHandler::m_PushMessageToSendQueue(unsigned char msgType, std::string msg)
 {
     std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
-    m_sendMessageQueue.push(msg);
+    m_sendMessageQueue.push(std::move(std::make_unique<NetworkMessage>(msgType, msg)));
 }
 
 
@@ -81,11 +84,10 @@ int MessageHandler::m_GetSizeofSendQueue(void)
 }
 
 
-std::string MessageHandler::m_GetMessageFromSendQueue(void)
+std::unique_ptr<NetworkMessage> MessageHandler::m_GetMessageFromSendQueue(void)
 {
     std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
-    std::string msg;
-    msg = m_sendMessageQueue.front();
+    std::unique_ptr<NetworkMessage> msg = std::move(m_sendMessageQueue.front());
     m_sendMessageQueue.pop();
     return msg;
 }
@@ -142,8 +144,12 @@ void MessageHandler::m_HandleInput(void)
                     Log::s_GetInstance()->m_LogWrite("MessageHandler::m_HandleInput()", "Exit command recieved.");
                     return;
                 }
+
+                // Set message type accordingly if our alias is set
+                unsigned char messageType = (MessageHandler::m_aliasSet) ? MessageType::MESSAGE : MessageType::ALIASSET;
+
                 // Get the input buffer and add it to the send queue
-                this->m_PushMessageToSendQueue(this->m_GetInputBufferStr());
+                this->m_PushMessageToSendQueue(messageType, this->m_GetInputBufferStr());
                 // Empty the input buffer
                 this->m_ClearInputBuffer();
                 Display::s_ClearInputField();

@@ -10,6 +10,27 @@
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
+namespace MessageType{
+
+    enum MessageType: unsigned char
+    {
+        // Alias
+        ALIASSET,   // Client <-> Server Requesting and Setting alias 
+        ALIASACK,   // Server -> Client Accept alias
+        ALIASDNY,   // Server -> Client Reject alias
+
+        // General message
+        MESSAGE,    // Client <-> Server
+
+        // Server info
+        CONNUSERS,  // Server -> Client Number of connected users
+
+    };
+
+    std::string GetMessageType(unsigned char msgbyte);
+
+}
+
 class NetworkHandler
 {
 private:
@@ -20,35 +41,37 @@ private:
     static std::mutex connectedFlagMutex;
 
 public:
-    // @brief Creates the socket and policies
-    // @param hostName ipAddress
-    // @param port port number string
-    // @return bool - success
+    /// @brief Creates the socket and policies
+    /// @param hostName ipAddress
+    /// @param port port number string
+    /// @return bool - success
     bool m_Create(std::string hostName, std::string port);
 
-    // @brief Establishes the network connection
-    // @return bool - success
+    /// @brief Establishes the network connection
+    /// @return bool - success
     bool m_Connect(void);
 
-    // @brief Checks if any messages are waiting to be read
-    // @return If there are messages then return a copy of them
-    std::string m_RecieveMessages(void);
+    /// @brief Check for a message from a user, if there is one we can recieve it
+    /// @param messageOut is the returned message, will only be set if method return true
+    /// @return bool - if there was a message
+    bool m_RecieveMessage(std::string& messageOut);
 
-    // @brief Send a message to the connected socket
-    // @param Copy of the message
-    // @return bool - success
-    bool m_Send(std::string msg);
+    /// @brief Send a message to the connected socket
+    /// @param msgType Type of messsage
+    /// @param msg message to send
+    /// @return bool - success
+    bool m_Send(unsigned char msgType, const std::string& msg);
 
-    // @brief Close the established connection
-    // @return bool - success
+    /// @brief Close the established connection
+    /// @return bool - success
     bool m_Close(void);
 
-    // @brief Set the connection boolean
-    // @param Value the boolean to set the flag
+    /// @brief Set the connection boolean
+    /// @param Value the boolean to set the flag
     static void s_SetConnectedFlag(bool value);
 
-    // @brief Get the value of the connection boolean
-    // @return Wether the socket is connected
+    /// @brief Get the value of the connection boolean
+    /// @return Wether the socket is connected
     static bool s_GetConnectedFlag(void);
 
 };

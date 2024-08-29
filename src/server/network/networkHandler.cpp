@@ -7,15 +7,32 @@
 #include <iomanip>
 #include <algorithm>
 
+
 #define UNAME_MIN_SIZE 3
 #define UNAME_MAX_SIZE 8
+
 
 constexpr const char* namePrefix = "alias:";
 constexpr size_t namePrefixSize = std::char_traits<char>::length(namePrefix); // complie time compute
 
+
+std::string MessageType::GetMessageType(unsigned char msgByte)
+{
+    switch (msgByte)
+    {
+        case ALIASSET:  return "Alias set";
+        case ALIASACK:  return "Alias acknowledge";
+        case ALIASDNY:  return "Alias deny";
+        case MESSAGE:   return "General message";
+        case CONNUSERS: return "Connected users control";
+        default:        return "Unknown";
+    }
+}
+
+
 void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST])
 {
-    this->m_Send(userSocket, "Welcome, please submit a username. Like so - alias:name");
+    this->m_Send(MessageType::ALIASSET, userSocket, "Welcome, please submit a username. Like so - alias:name");
 
     SetSocketBlocking(true, userSocket);
     // Get alias packet
@@ -28,7 +45,6 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
 
     while (true)
     {    
-        Log::s_GetInstance()->m_LogWrite("Async", "Socket: ", static_cast<int>(userSocket));
         int recvSize = recv(userSocket, aliasBuffer, sizeof(aliasBuffer)-1, 0);
         if (recvSize == -1)
         {
@@ -41,14 +57,13 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "connection dropped");
             return;
         }
-        Log::s_GetInstance()->m_LogWrite("asnyc conncetion", "Packet size: ", recvSize, " ");
 
         // Username has to between 3 and 8 characters, if its not we will 
         if (std::strncmp(aliasBuffer, namePrefix, namePrefixSize) || 
             recvSize < static_cast<int>(namePrefixSize + UNAME_MIN_SIZE) || 
             recvSize > static_cast<int>(namePrefixSize + UNAME_MAX_SIZE))
         {
-            this->m_Send(userSocket, "Username not acceptable - needs to be 3 to 8 chars long.");
+            this->m_Send(MessageType::ALIASDNY, userSocket, "Username not acceptable - needs to be 3 to 8 chars long.");
         }
         // Username is fine
         else
@@ -64,15 +79,18 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
             if (m_AttemptAddNetworkedUser(userStruct))
                 break;
             else
-                this->m_Send(userSocket, "Username not acceptable - needs to be unique.");
+                this->m_Send(MessageType::ALIASDNY, userSocket, "Username not acceptable - needs to be unique.");
         }
         std::memset(aliasBuffer, 0, sizeof(aliasBuffer)); // If username was not accepted, we null the memory again
     }
     SetSocketBlocking(false, userSocket);
 
+    // Alias is accpeted, send an acknowledgement to the user and broadcast to all users
+    m_Send(MessageType::ALIASACK, userSocket, "Accepted");
+
     std::stringstream ssConnectionMsg;
     ssConnectionMsg << userStruct->m_GetUserAlias() << " connected.";
-    m_BroadcastMessage(nullptr, ssConnectionMsg.str());
+    m_BroadcastMessage(MessageType::MESSAGE, nullptr, ssConnectionMsg.str());
 }
 
 
@@ -238,6 +256,7 @@ bool NetworkHandler::m_Listen(int connections)
     return true;
 }
 
+
 bool NetworkHandler::m_Accept()
 {
     WSAPOLLFD fds[1];
@@ -289,7 +308,6 @@ bool NetworkHandler::m_Accept()
 
     return true;
 }
-
 
 
 bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string& messageOut)
@@ -344,6 +362,10 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
 
             totalBytes += bytesRecived;
         } while (true);
+
+        // Pass the memory to a string type (RAII)
+        std::string readBufferString = readBuffer;
+        free(readBuffer);
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
 
@@ -354,20 +376,39 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
             return false;
         }
 
-        // Message set
-        messageOut = readBuffer;
-        free(readBuffer);
+        // We now handle the message accordingly
+        // Check first byte
+        byte msgType = static_cast<byte>(readBufferString[0]);
+        switch (msgType)
+        {
+            // Regular message
+            case MessageType::MESSAGE:
+            {
+                messageOut = readBufferString.substr(1, readBufferString.size());
+                return true;
+            }
 
-        return true;
+            // Should not be recieving alias packets or connuserspackets
+            case MessageType::ALIASSET:
+            case MessageType::ALIASACK:
+            case MessageType::ALIASDNY:
+            case MessageType::CONNUSERS:
+            default:
+            {
+                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", msgType, ")");
+                break;
+            }
+        }
+        // false
     }
-    else
-        return false;
+    return false;
 }
 
 
-bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string message)
+bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUser sender, std::string message)
 {
     std::stringstream ssMessage;
+    ssMessage << MessageType::MESSAGE;
 
     // Get current time
     auto now = std::chrono::system_clock::now();
@@ -378,7 +419,6 @@ bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string mess
     // Non-server message message
     if (sender != nullptr)
     {
-        Log::s_GetInstance()->m_LogWrite("Broadcast", "Nullptr sender");
         // We put the user name in it
         ssMessage << sender->m_GetUserAlias() << ": ";
     }
@@ -392,10 +432,9 @@ bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string mess
     // For every connected socket, we send our message.
     for (auto& user : this->m_GetNetworkedUsers())
     {
-        int bytesSent = send(user->m_GetUserSocket(), ssMessage.str().c_str(), ssMessage.str().size(), 0);
-        // If fail
-        if (bytesSent == -1)
+        if (!m_Send(messageType, user->m_GetUserSocket(), ssMessage.str()))
         {
+            // If fail
             success = false;
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_BroadcastMessage()", 
                 "Message failed to send to ", user->m_GetUserAddress(), " - ", user->m_GetUserAlias(), " Message: ", ssMessage.str());
@@ -405,7 +444,7 @@ bool NetworkHandler::m_BroadcastMessage(spNetworkedUser sender, std::string mess
 }
 
 
-bool NetworkHandler::m_Send(SOCKET recipient, std::string message)
+bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, std::string message)
 {
     int bytesSent = send(recipient, message.c_str(), message.size(), 0);
     if (bytesSent == -1)
@@ -417,6 +456,7 @@ bool NetworkHandler::m_Send(SOCKET recipient, std::string message)
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Sent ", bytesSent, " bytes");
     return true;
 }
+
 
 bool NetworkHandler::m_DisconnectUser(spNetworkedUser userToDisconnect)
 {
@@ -436,7 +476,7 @@ bool NetworkHandler::m_DisconnectUser(spNetworkedUser userToDisconnect)
 
         std::stringstream ssDisconnectMsg;
         ssDisconnectMsg << userToDisconnect->m_GetUserAlias() << " has disconnected.";
-        m_BroadcastMessage(nullptr, ssDisconnectMsg.str());
+        m_BroadcastMessage(MessageType::MESSAGE, nullptr, ssDisconnectMsg.str());
         
         return true;
     }
@@ -444,6 +484,7 @@ bool NetworkHandler::m_DisconnectUser(spNetworkedUser userToDisconnect)
     connectedUserVectorMutex.unlock();
     return false;
 }
+
 
 bool NetworkHandler::m_Shutdown(void)
 {
@@ -459,5 +500,3 @@ WSACleanup();
 #endif
     return true;
 }
-
-

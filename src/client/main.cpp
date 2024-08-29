@@ -49,8 +49,8 @@ void HandleNetwork(void)
     while (true)
     {
         // Recv message and add to the message display
-        std::string recvMsg = p_networkHandler->m_RecieveMessages();
-        if (recvMsg != "")
+        std::string recvMsg;
+        if (p_networkHandler->m_RecieveMessage(recvMsg))
         {
             p_messageHandler->m_PushMessageToDisplay(recvMsg);
             Display::s_DrawMessageDisplay(p_messageHandler);
@@ -71,7 +71,8 @@ void HandleNetwork(void)
 
         if (p_messageHandler->m_GetSizeofSendQueue() > 0)
         {
-            p_networkHandler->m_Send(p_messageHandler->m_GetMessageFromSendQueue());
+            auto networkMessage = p_messageHandler->m_GetMessageFromSendQueue();
+            p_networkHandler->m_Send(networkMessage->messageType, networkMessage->message);
         }
 
         // Here we also deal with any network errors
@@ -86,6 +87,7 @@ void HandleNetwork(void)
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
     }
 }
+
 
 void DrawThreadMethod(void)
 {
@@ -110,7 +112,6 @@ void DrawThreadMethod(void)
         if (returnThreads) {return;}
     }
 }
-
 
 
 int main()

@@ -18,20 +18,25 @@
 // Chat related
 #define MAXALIASSIZE 10
 
-enum MessageType: unsigned char
-{
-    // Alias
-    ALIASSET,   // Client -> Server Setting alias 
-    ALIASACK,   // Server -> Client Accept alias
-    ALIASDNY,   // Server -> Client Reject alias
+namespace MessageType{
 
-    // General message
-    MESSAGE,    // Client <-> Server
+    enum MessageType: unsigned char
+    {
+        // Alias
+        ALIASSET,   // Client <-> Server Requesting and Setting alias 
+        ALIASACK,   // Server -> Client Accept alias
+        ALIASDNY,   // Server -> Client Reject alias
 
-    // Server info
-    CONNUSERS,  // Server -> Client Number of connected users
+        // General message
+        MESSAGE,    // Client <-> Server
 
-};
+        // Server info
+        CONNUSERS,  // Server -> Client Number of connected users
+
+    };
+
+    std::string GetMessageType(unsigned char msgByte);
+}
 
 
 class NetworkedUser
@@ -144,17 +149,19 @@ public:
 
 
     /// @brief Send a message to all connected users
+    /// @param messageType Type of messsage
     /// @param Sender NetworkedUser struct of the users sending the message
     /// @param message string to send
     /// @return bool - success
-    bool m_BroadcastMessage(spNetworkedUser sender, std::string message);
+    bool m_BroadcastMessage(unsigned char messageType, spNetworkedUser sender, std::string message);
 
 
-    /// @brief Send message to certain connected user
+    /// @brief Send message to certain connected user. The only method that will call Ws2 send()
+    /// @param messageType Type of messsage
     /// @param connectedUser is who to send the message to
     /// @param message is the message
     /// @return bool - success
-    bool m_Send(SOCKET recipient, std::string message);
+    bool m_Send(unsigned char messageType, SOCKET recipient, std::string message);
 
 
     /// @brief 

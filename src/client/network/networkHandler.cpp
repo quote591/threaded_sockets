@@ -8,6 +8,20 @@ bool NetworkHandler::bConnectedFlag = false;
 std::mutex NetworkHandler::connectedFlagMutex;
 
 
+std::string MessageType::GetMessageType(unsigned char msgbyte)
+{
+    switch (msgbyte)
+    {
+        case ALIASSET:  return "Alias set";
+        case ALIASACK:  return "Alias acknowledge";
+        case ALIASDNY:  return "Alias deny";
+        case MESSAGE:   return "General message";
+        case CONNUSERS: return "Connected users control";
+        default:        return "Unknown";
+    }
+}
+
+
 bool NetworkHandler::m_Create(std::string hostName, std::string port)
 {
     // Not filled in 
@@ -96,7 +110,7 @@ bool NetworkHandler::m_Connect()
 }
 
 
-std::string NetworkHandler::m_RecieveMessages(void)
+bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
 {
     WSAPOLLFD fds[1];
     fds[0].fd = socket_peer;
@@ -108,10 +122,10 @@ std::string NetworkHandler::m_RecieveMessages(void)
         std::stringstream recvSS; recvSS << "Error occured WSAPoll(): " << errno;
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", recvSS.str());
     }
-    // We have a packet to process
+
     else if (retCode != 0)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", "Packet available");
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet available");
         
         int readBufferSize = 4;
         char* readBuffer = (char*)calloc(readBufferSize, sizeof(char));
@@ -122,58 +136,81 @@ std::string NetworkHandler::m_RecieveMessages(void)
             // Our buffer is maxed, we need to extend it
             if (totalBytes >= readBufferSize)
             {
-                std::stringstream ss; ss << "Buffer maxed, doubling size (" << readBufferSize << "bytes -> " << readBufferSize*2 << "bytes)";
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", ss.str());
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", 
+                    "Buffer maxed, doubling: ", readBufferSize, " bytes -> ", readBufferSize*2, " bytes");
 
                 // Fails
                 readBuffer = (char*)realloc(readBuffer, (readBufferSize * 2));
                 // Zero out our new memory
                 memset(readBuffer + readBufferSize, '\0', readBufferSize);
-                // Extend buffer var
                 readBufferSize*=2; 
             }
 
             // Recieve the data from the socket
             bytesRecived = recv(socket_peer, readBuffer+totalBytes, readBufferSize/2, 0);
             
-            // Non-blocking sockets throw an error when they have no data to provice. 
+            // -1 = finished async recv
             if (bytesRecived == -1)
             {
-                // Acknowledge error and return
+                // Acknowledge error
                 GETSOCKETERRNO();
-                Log::s_GetInstance()->m_LogWrite("NetworkHandle::m_RecieveMessages()", "Finished message. Return");
                 break;
             }
+            
+            else if (bytesRecived == 0)
+                break;
+
             totalBytes += bytesRecived;
         } while (true);
+
+        // Pass the memory to a string type (RAII)
+        std::string readBufferString = readBuffer;
+        free(readBuffer);
         
-        // If we recieve a message and get 0 bytes. The socket connection is closed.
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
+
+        // No bytes recieved then we treat as disconnect
         if (totalBytes == 0)
         {
-            NetworkHandler::s_SetConnectedFlag(false);
-            return "";
+            // TODO disconnect
+            // this->m_DisconnectUser(connectedUser);
+            return false;
         }
 
+        // We now handle the message accordingly
+        // Check first byte
+        unsigned char msgType = readBufferString[0];
+        switch (msgType)
+        {
+            // Regular message
+            case MessageType::MESSAGE:
+            {
+                messageOut = readBufferString.substr(1, readBufferString.size());
+                return true;
+            }
 
-        std::string bytesRecvMsg = "Bytes recieved: ";
-        bytesRecvMsg += std::to_string(totalBytes);
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", bytesRecvMsg);
-
-        std::string msg = readBuffer;
-        free(readBuffer);
-
-        return msg;            
+            // Should not be recieving alias packets or connuserspackets
+            case MessageType::ALIASSET:
+            case MessageType::ALIASACK:
+            case MessageType::ALIASDNY:
+            case MessageType::CONNUSERS:
+            default:
+            {
+                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", msgType, ")");
+                break;
+            }
+        }
+        // false
     }
-    // Nothing
-    return "";
+    return false;
 }
 
 
-bool NetworkHandler::m_Send(std::string msg)
+bool NetworkHandler::m_Send(unsigned char msgType, const std::string& msg)
 {
-    std::stringstream ss; ss << "Sent: '" << msg << "' (" << msg.size() << " bytes)";
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", ss.str());
-    return send(socket_peer, msg.c_str(), msg.size(), 0);
+    std::string message = static_cast<char>(msgType) + msg;
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Sendt: '", msg, "' (", msg.size(), " bytes)");
+    return send(socket_peer, message.c_str(), message.size(), 0);
 }
 
 

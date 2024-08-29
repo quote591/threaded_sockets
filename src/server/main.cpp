@@ -67,7 +67,8 @@ void HandleNetwork(void)
             // If we have a message, the string will be set
             if (p_networkHandler->m_RecieveMessage(user, message))
             {
-                p_networkHandler->m_BroadcastMessage(user, message);
+                // If we recieve a message and return true we can assume its a standard msg
+                p_networkHandler->m_BroadcastMessage(MessageType::MESSAGE, user, message);
             }
             i++;
         }

@@ -3,6 +3,7 @@
 #include "../messageHandler.hpp"
 
 #include <sstream>
+#include <cassert>
 
 // Static declares
 bool NetworkHandler::bConnectedFlag = false;
@@ -127,64 +128,18 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
     else if (retCode != 0)
     {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet available");
-        
-        int readBufferSize = 4;
-        char* readBuffer = (char*)calloc(readBufferSize, sizeof(char));
-        int bytesRecived = 0;
-        int totalBytes = 0;
 
-        do {
-            // Our buffer is maxed, we need to extend it
-            if (totalBytes >= readBufferSize)
-            {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", 
-                    "Buffer maxed, doubling: ", readBufferSize, " bytes -> ", readBufferSize*2, " bytes");
-
-                // Fails
-                readBuffer = (char*)realloc(readBuffer, (readBufferSize * 2));
-                // Zero out our new memory
-                memset(readBuffer + readBufferSize, '\0', readBufferSize);
-                readBufferSize*=2; 
-            }
-
-            // Recieve the data from the socket
-            bytesRecived = recv(socket_peer, readBuffer+totalBytes, readBufferSize/2, 0);
-            
-            // -1 = finished async recv
-            if (bytesRecived == -1)
-            {
-                // Acknowledge error
-                GETSOCKETERRNO();
-                break;
-            }
-            
-            else if (bytesRecived == 0)
-                break;
-
-            totalBytes += bytesRecived;
-        } while (true);
-
-        // Pass the memory to a string type (RAII)
-        std::string packetBuffer(readBuffer, totalBytes);
-        free(readBuffer);
-        
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
-
-        // No bytes recieved then we treat as disconnect
-        if (totalBytes == 0)
+        Packet networkPacket;
+        if (!m_Recv(socket_peer, networkPacket))
         {
-            // TODO disconnect
-            // this->m_DisconnectUser(connectedUser);
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Error occured in m_Recv()");
             return false;
         }
 
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Message: ", packetBuffer);
-
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet data: ", (int)networkPacket.msgType, " : ", networkPacket.message);
+        
         // We now handle the message accordingly
-        // Check first byte
-        unsigned char packetType = packetBuffer[0];
-        std::string packetMessage = packetBuffer.substr(1, packetBuffer.size()-1);
-        switch (packetType)
+        switch (networkPacket.msgType)
         {
             // Print out message
             case MessageType::ALIASACK:
@@ -199,19 +154,19 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
             case MessageType::ALIASDNY:
             case MessageType::MESSAGE:
             {
-                messageOut = packetMessage;
+                messageOut = networkPacket.message;
                 return true;
             }
 
             case MessageType::CONNUSERS:
             {
-                NetworkHandler::m_knownConnectedUsers = std::stoi(packetMessage);
+                NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.message);
                 // TODO Update connusers info heading
                 return false;
             }
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(packetType), "(", (int)packetType, ")");
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.msgType), "(", (int)networkPacket.msgType, ")");
                 break;
             }
         }
@@ -223,9 +178,59 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
 
 bool NetworkHandler::m_Send(unsigned char msgType, const std::string& msg)
 {
-    std::string message = static_cast<char>(msgType) + msg;
+    std::uint16_t payloadSize = 1 + msg.size();
+    assert(payloadSize < MAXTCPPAYLOAD);
+
+    // Turn the integer into the two bytes to be written
+    std::uint8_t payloadSizeBytes[2] = {static_cast<std::uint8_t>(payloadSize >> 8), static_cast<std::uint8_t>(payloadSize & 0xFF)};
+
+    std::string message = std::string(reinterpret_cast<char*>(payloadSizeBytes), 2) + static_cast<char>(msgType) + msg;
+
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Send: '", msg, "' (", msg.size(), " bytes)");
     return send(socket_peer, message.c_str(), message.size(), 0);
+}
+
+
+bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
+{
+    std::uint8_t packetSizeBuffer[2];
+
+    // Get packet size
+    int recvLengthSize = recv(connection, reinterpret_cast<char*>(packetSizeBuffer), sizeof(packetSizeBuffer), 0);
+
+    if (recvLengthSize == -1)
+    {
+        GETSOCKETERRNO();
+    }
+    else if (recvLengthSize == 0)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv length 0: connection dropped.");
+        return false;
+    }
+
+    std::uint16_t packetSize;
+    packetSize = (static_cast<std::uint16_t>(packetSizeBuffer[0]) << 8) + static_cast<std::uint16_t>(packetSizeBuffer[1]);
+    
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet size recieved: ", packetSize);
+    // Once we have the message length we can get the packet
+    std::uint8_t* packetBuffer = (std::uint8_t*)malloc(packetSize);
+
+    int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
+    if (recvPacketSize == -1)
+    {
+        GETSOCKETERRNO();
+    }
+    else if (recvLengthSize == 0)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv packet 0: connection dropped.");
+        free(packetBuffer);
+        return false;
+    }
+
+    incomingPacketOut.msgType = packetBuffer[0];
+    incomingPacketOut.message = std::string(reinterpret_cast<char*>(packetBuffer+1), recvPacketSize-1);
+    free(packetBuffer);
+    return true;
 }
 
 

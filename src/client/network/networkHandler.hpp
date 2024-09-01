@@ -16,6 +16,12 @@
 // 2 is our overhead of the packet 2 bytes for size
 constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
+struct Packet
+{
+    unsigned char msgType;
+    std::string message;
+};
+
 namespace MessageType{
 
     enum MessageType: unsigned char
@@ -55,14 +61,17 @@ public:
     /// @return bool - success
     bool m_Create(std::string hostName, std::string port);
 
+
     /// @brief Establishes the network connection
     /// @return bool - success
     bool m_Connect(void);
+
 
     /// @brief Check for a message from a user, if there is one we can recieve it
     /// @param messageOut is the returned message, will only be set if method return true
     /// @return bool - if there was a message
     bool m_RecieveMessage(std::string& messageOut);
+
 
     /// @brief Send a message to the connected socket
     /// @param msgType Type of messsage
@@ -70,13 +79,23 @@ public:
     /// @return bool - success
     bool m_Send(unsigned char msgType, const std::string& msg);
 
+
+    /// @brief Wrapper for recv()
+    /// @param connection Connected user struct to recieve the data (can be nullptr)
+    /// @param incomingPacketOut Struct passed by ref. Will set the data if method return true
+    /// @return bool - success
+    bool m_Recv(SOCKET connection, Packet& incomingPacketOut);
+
+
     /// @brief Close the established connection
     /// @return bool - success
     bool m_Close(void);
 
+
     /// @brief Set the connection boolean
     /// @param Value the boolean to set the flag
     static void s_SetConnectedFlag(bool value);
+
 
     /// @brief Get the value of the connection boolean
     /// @return Wether the socket is connected

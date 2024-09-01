@@ -67,11 +67,13 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
             if (!m_AttemptAddNetworkedUser(userStruct))
                 throw("Username taken - needs to be unique.");
 
+
             // All passed
             break;
         }
-        catch(const std::string& exceptionString)
+        catch(const char* exceptionString)
         {
+            Log::s_GetInstance()->m_LogWrite("Alias setting", "Exception: ", exceptionString);
             this->m_Send(MessageType::ALIASDNY, userSocket, exceptionString);
         }
     }
@@ -388,7 +390,7 @@ bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUs
 }
 
 
-bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, std::string message)
+bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, const std::string& message)
 {
     // Make sure our payload is not too big to fit in a TCP packet
 
@@ -442,7 +444,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
     // No packet, connection dropped
     else if (recvLengthSize == 0)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv length: connection dropped.");
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv length 0: connection dropped.");
 
         // Drop the senderstruct. If regular socket we can just return
         if (senderStruct != nullptr) m_DisconnectUser(senderStruct);
@@ -455,7 +457,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
     // Once we have the message length we can get the packet
     std::uint8_t* packetBuffer = (std::uint8_t*)malloc(packetSize);
 
-    int recvPacketSize = recv(socket, reinterpret_cast<char*>(packetBuffer), sizeof(packetBuffer), 0);
+    int recvPacketSize = recv(socket, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
     if (recvPacketSize == -1 && !blocking)
     {
         GETSOCKETERRNO();
@@ -477,7 +479,8 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
     }
 
     incomingPacketOut.msgType = packetBuffer[0];
-    incomingPacketOut.message = std::string(reinterpret_cast<char*>(packetBuffer), recvPacketSize-1);
+    incomingPacketOut.message = std::string(reinterpret_cast<char*>(packetBuffer+1), recvPacketSize-1);
+
     free(packetBuffer);
     return true;
 }
@@ -485,7 +488,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
 
 bool NetworkHandler::m_DisconnectUser(const spNetworkedUser userToDisconnect)
 {
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_DisconnectUser()", "Disconnecting user: ", userToDisconnect->m_GetUserAlias(), " at ", userToDisconnect->m_GetUserAddress());
+    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_DisconnectUser()", "Disconnecting user: ", userToDisconnect->m_GetUserAlias());
 
     connectedUserVectorMutex.lock();
     auto it = std::find_if(std::begin(connectedUsers), std::end(connectedUsers), [&userToDisconnect](spNetworkedUser& user)

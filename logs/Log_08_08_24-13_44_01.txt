@@ -1,4 +1,0 @@
-[00:00:001][MessageHandler::MessageHandler()	] : Thread started
-[00:05:006][MessageHandler::m_ReturnThreads()	] : Updating m_threadReturn flag
-[00:05:038][MessageHandler::m_HandleInput()	] : Thread returned
-[00:06:020][MessageHandler::~MessageHandler()	] : Thread joined

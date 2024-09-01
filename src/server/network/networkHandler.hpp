@@ -15,11 +15,19 @@
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
-// 2^16 - 40. 40 is the minimum size of the tcp packet
-constexpr unsigned int MAXTCPPAYLOAD = 65535-40;
+// 2^16 - 40. 
+// 40 is the minimum size of the tcp packet
+// 2 is our overhead of the packet 2 bytes for size
+constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
 // Chat related
 #define MAXALIASSIZE 10
+
+struct Packet
+{
+    unsigned char msgType;
+    std::string message;
+};
 
 namespace MessageType{
 
@@ -161,16 +169,25 @@ public:
 
     /// @brief Send message to certain connected user. The only method that will call Ws2 send()
     /// @param messageType Type of messsage
-    /// @param connectedUser is who to send the message to
+    /// @param recipient is who to send the message to
     /// @param message is the message
     /// @return bool - success
     bool m_Send(unsigned char messageType, SOCKET recipient, std::string message);
 
 
-    /// @brief 
-    /// @param userToDisconnect 
+    /// @brief Wrapper for recv()
+    /// @param sender Connected user struct to recieve the data (can be nullptr)
+    /// @param senderSock Non-connected user to recieve the data like in accept (can be nullptr)
+    /// @param incomingPacketOut Struct passed by ref. Will set the data if method return true
+    /// @param blocking Flag for if the sockets are set as blocking
     /// @return bool - success
-    bool m_DisconnectUser(spNetworkedUser userToDisconnect);
+    bool m_Recv(spNetworkedUser sender, SOCKET* senderSock, Packet& incomingPacketOut, bool blocking);
+
+
+    /// @brief Disconnect a connected user
+    /// @param userToDisconnect Connected user struct
+    /// @return bool - success
+    bool m_DisconnectUser(const spNetworkedUser userToDisconnect);
 
 
     /// @brief Closes all connections and clean up

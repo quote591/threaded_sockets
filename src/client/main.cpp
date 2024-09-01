@@ -6,8 +6,6 @@
 #include <thread>
 #include <memory>
 
-#include <iostream>
-
 MessageHandler* p_messageHandler;
 NetworkHandler* p_networkHandler;
 
@@ -48,6 +46,7 @@ void HandleNetwork(void)
     // Recv and send any data that is available
     while (true)
     {
+
         // Recv message and add to the message display
         std::string recvMsg;
         if (p_networkHandler->m_RecieveMessage(recvMsg))

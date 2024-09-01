@@ -15,6 +15,9 @@
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
+// 2^16 - 40. 40 is the minimum size of the tcp packet
+constexpr unsigned int MAXTCPPAYLOAD = 65535-40;
+
 // Chat related
 #define MAXALIASSIZE 10
 

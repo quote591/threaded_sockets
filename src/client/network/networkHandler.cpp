@@ -7,7 +7,7 @@
 // Static declares
 bool NetworkHandler::bConnectedFlag = false;
 std::mutex NetworkHandler::connectedFlagMutex;
-
+std::atomic<int> NetworkHandler::m_knownConnectedUsers = 0;
 
 std::string MessageType::GetMessageType(unsigned char msgbyte)
 {
@@ -165,7 +165,7 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
         } while (true);
 
         // Pass the memory to a string type (RAII)
-        std::string readBufferString(readBuffer, totalBytes);
+        std::string packetBuffer(readBuffer, totalBytes);
         free(readBuffer);
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
@@ -178,12 +178,13 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
             return false;
         }
 
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Message: ", readBufferString);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Message: ", packetBuffer);
 
         // We now handle the message accordingly
         // Check first byte
-        unsigned char msgType = readBufferString[0];
-        switch (msgType)
+        unsigned char packetType = packetBuffer[0];
+        std::string packetMessage = packetBuffer.substr(1, packetBuffer.size()-1);
+        switch (packetType)
         {
             // Print out message
             case MessageType::ALIASACK:
@@ -198,18 +199,19 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
             case MessageType::ALIASDNY:
             case MessageType::MESSAGE:
             {
-                messageOut = readBufferString.substr(1, readBufferString.size()-1);
+                messageOut = packetMessage;
                 return true;
             }
 
             case MessageType::CONNUSERS:
             {
+                NetworkHandler::m_knownConnectedUsers = std::stoi(packetMessage);
                 // TODO Update connusers info heading
                 return false;
             }
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(msgType), "(", (int)msgType, ")");
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(packetType), "(", (int)packetType, ")");
                 break;
             }
         }

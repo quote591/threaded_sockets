@@ -12,6 +12,7 @@
 #define UNAME_MAX_SIZE 8
 
 
+
 std::string MessageType::GetMessageType(unsigned char msgByte)
 {
     switch (msgByte)
@@ -25,6 +26,7 @@ std::string MessageType::GetMessageType(unsigned char msgByte)
     }
 }
 
+#include <iostream>
 
 void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char address[NI_MAXHOST])
 {
@@ -32,7 +34,7 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
 
     SetSocketBlocking(true, userSocket);
     // Get alias packet
-    char aliasBuffer[UNAME_MAX_SIZE];
+    char aliasBuffer[UNAME_MAX_SIZE+1];
     std::memset(aliasBuffer, 0, sizeof(aliasBuffer));
 
     // Alias packet
@@ -41,7 +43,7 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
 
     while (true)
     {    
-        int recvSize = recv(userSocket, aliasBuffer, sizeof(aliasBuffer)-1, 0);
+        int recvSize = recv(userSocket, aliasBuffer, sizeof(aliasBuffer), 0);
         if (recvSize == -1)
         {
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "recv error WSAGetLastError(): ", GETSOCKETERRNO());
@@ -53,6 +55,7 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "connection dropped");
             return;
         }
+        std::cout << "Size: " << recvSize << "name: " << aliasBuffer << std::endl;  
 
         // Username has to between 3 and 8 characters
         if ((recvSize < UNAME_MIN_SIZE+1) || (recvSize > UNAME_MAX_SIZE-1))
@@ -116,7 +119,6 @@ int NetworkHandler::m_GetNetworkedUsersCount(void)
 {
     std::lock_guard<std::mutex> lock(connectedUserVectorMutex);
     return connectedUsers.size();
-    
 }
 
 
@@ -175,7 +177,8 @@ bool NetworkHandler::m_Create(std::string port)
     // Set version for winsock2
     #if defined(_WIN32)
 	WSADATA d;
-	if (WSAStartup(MAKEWORD(2, 2), &d)) {
+	if (WSAStartup(MAKEWORD(2, 2), &d))
+    {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "Failed to initalize ", errno);
 		return false;
 	}
@@ -190,7 +193,8 @@ bool NetworkHandler::m_Create(std::string port)
 
 	struct addrinfo* bindAddress;
 	/* getaddrinfo here generates an address for bind() */
-	if (getaddrinfo(0, port.c_str(), &hints, &bindAddress)){
+	if (getaddrinfo(0, port.c_str(), &hints, &bindAddress))
+    {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "mServerTCPCreate error. getaddrinfo() failed. (", GETSOCKETERRNO(), ")");
 		return false;
 	}
@@ -200,7 +204,8 @@ bool NetworkHandler::m_Create(std::string port)
 	                      bindAddress->ai_socktype, bindAddress->ai_protocol);
 
 	/* check if the call to socket() was sucessful */
-	if (!ISVALIDSOCKET(m_serverSocket)) {
+	if (!ISVALIDSOCKET(m_serverSocket))
+    {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "socket() failed. (", GETSOCKETERRNO(), ")");
 		return false;
 	}
@@ -217,15 +222,14 @@ bool NetworkHandler::m_Create(std::string port)
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "Binding socket to local address...");
 
 	// bind returns 0 on success
-	if (bind(m_serverSocket, bindAddress->ai_addr, bindAddress->ai_addrlen)) {
+	if (bind(m_serverSocket, bindAddress->ai_addr, bindAddress->ai_addrlen))
+    {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Create()", "bind() failed. (", GETSOCKETERRNO(), ")");
 
         // In the case where bind fails the resorses are still freed
 		freeaddrinfo(bindAddress); 
 		return false;
 	}
-
-
 
 	// release address memory
 	freeaddrinfo(bindAddress);

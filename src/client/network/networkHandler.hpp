@@ -5,10 +5,13 @@
 
 #include <string>
 #include <mutex>
+#include <atomic>
 
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
+
+constexpr unsigned int MAXTCPPAYLOAD = 65535-40;
 
 namespace MessageType{
 
@@ -41,6 +44,8 @@ private:
     static std::mutex connectedFlagMutex;
 
 public:
+    static std::atomic<int> m_knownConnectedUsers;
+
     /// @brief Creates the socket and policies
     /// @param hostName ipAddress
     /// @param port port number string

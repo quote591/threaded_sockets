@@ -172,7 +172,7 @@ public:
     /// @param recipient is who to send the message to
     /// @param message is the message
     /// @return bool - success
-    bool m_Send(unsigned char messageType, SOCKET recipient, std::string message);
+    bool m_Send(unsigned char messageType, SOCKET recipient, const std::string& message);
 
 
     /// @brief Wrapper for recv()

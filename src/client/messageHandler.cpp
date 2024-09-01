@@ -162,13 +162,8 @@ void MessageHandler::m_HandleInput(void)
             // If char is printable then we can add it to our buffer
             if (std::isprint(c))
             {
-                std::stringstream ss;
                 this->m_PushInputBuffer(c);
                 Display::s_WriteToInputDisplay(c);
-
-                ss << "Pushing character to input buffer: " << c << " Total length(" << this->m_GetInputBufferStr().size() << ")";
-                Log::s_GetInstance()->m_LogWrite("MessageHandler::m_HandleInput()", ss.str());
-
             }
             else if (c == 8 && m_inputBuffer.size() != 0) // backspace
             {

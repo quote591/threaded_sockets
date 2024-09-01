@@ -9,7 +9,7 @@
 MessageHandler* p_messageHandler;
 NetworkHandler* p_networkHandler;
 
-std::atomic<int> returnThreads{0};
+std::atomic<bool> returnThreads{false};
 
 const std::string hostname = "192.168.1.114";
 const std::string port = "27011";
@@ -31,7 +31,7 @@ void HandleNetwork(void)
     {
         if(p_networkHandler->m_Connect())
         {
-            Display::s_DrawInfoDisplay(p_messageHandler);
+            Display::s_DrawInfoDisplayMux(p_messageHandler);
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -49,10 +49,11 @@ void HandleNetwork(void)
 
         // Recv message and add to the message display
         std::string recvMsg;
-        if (p_networkHandler->m_RecieveMessage(recvMsg))
+        if (p_networkHandler->m_ReceiveMessage(recvMsg, p_messageHandler))
         {
             p_messageHandler->m_PushMessageToDisplay(recvMsg);
             Display::s_DrawMessageDisplay(p_messageHandler);
+            Display::s_DrawInfoDisplayMux(p_messageHandler);
         }
         // We check if there is a disconnect
         else
@@ -61,9 +62,10 @@ void HandleNetwork(void)
             if (NetworkHandler::s_GetConnectedFlag() == false)
             {
                 // Update the info 
-                Display::s_DrawInfoDisplay(p_messageHandler);
+                Display::s_DrawInfoDisplayMux(p_messageHandler);
                 return; // Exit out
             }
+
         }
         // We check if there are any messages that are needed to be sent
         // if messageHandler has any messages on the queue then we should send them
@@ -71,7 +73,7 @@ void HandleNetwork(void)
         if (p_messageHandler->m_GetSizeofSendQueue() > 0)
         {
             auto networkMessage = p_messageHandler->m_GetMessageFromSendQueue();
-            p_networkHandler->m_Send(networkMessage->messageType, networkMessage->message);
+            p_networkHandler->m_Send(networkMessage->msgType, networkMessage->message);
         }
 
         // Here we also deal with any network errors
@@ -80,7 +82,7 @@ void HandleNetwork(void)
         if (returnThreads)
         {
             p_networkHandler->m_Close();
-            Display::s_DrawInfoDisplay(p_messageHandler);
+            Display::s_DrawInfoDisplayMux(p_messageHandler);
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -101,10 +103,10 @@ void DrawThreadMethod(void)
 
         if (oldColumn != column || oldRow != row /*|| updateDraw*/)
         {
+            Log::s_GetInstance()->m_LogWrite("Display::s_Draw()", "Terminal resolution changed, redrawing. ", column, "x", row);
             Display::s_ClearTerminal();
             Display::s_Draw(p_messageHandler);
             oldColumn = column; oldRow = row;
-            // updateDraw^=1;
         }
             
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -134,8 +136,7 @@ int main()
     messageThread.join();
 
     // If the return threads flag has not been enabled then we can enable it here
-    if (returnThreads == 0)
-        returnThreads^=1;
+    if (!returnThreads) returnThreads = true;
 
     drawThread.join();
     networkThread.join();

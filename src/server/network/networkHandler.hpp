@@ -35,8 +35,8 @@ namespace MessageType{
     {
         // Alias
         ALIASSET,   // Client <-> Server Requesting and Setting alias 
-        ALIASACK,   // Server -> Client Accept alias
-        ALIASDNY,   // Server -> Client Reject alias
+        ALIASACK,   // Server -> Client Accept alias. Sends accepted username
+        ALIASDNY,   // Server -> Client Reject alias. Send reason why
 
         // General message
         MESSAGE,    // Client <-> Server
@@ -156,7 +156,7 @@ public:
     /// @param connectedUser is the handle to check the connected user
     /// @param messageOut is the returned message, will only be set if method return true
     /// @return bool - if there was a message
-    bool m_RecieveMessage(spNetworkedUser connectedUser, std::string& messageOut);
+    bool m_ReceiveMessage(spNetworkedUser connectedUser, std::string& messageOut);
 
 
     /// @brief Send a message to all connected users

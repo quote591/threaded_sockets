@@ -1,0 +1,5 @@
+# Ignore everything in this directory.
+*
+# Except the gitignore itself
+!.gitignore
+# It is just to keep the logs directory

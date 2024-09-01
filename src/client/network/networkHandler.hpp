@@ -11,7 +11,10 @@
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
-constexpr unsigned int MAXTCPPAYLOAD = 65535-40;
+// 2^16 - 40. 
+// 40 is the minimum size of the tcp packet. (TODO check this, header size can change)
+// 2 is our overhead of the packet 2 bytes for size
+constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
 namespace MessageType{
 

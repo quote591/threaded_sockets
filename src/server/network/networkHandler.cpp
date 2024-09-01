@@ -6,7 +6,7 @@
 #include <memory>
 #include <iomanip>
 #include <algorithm>
-
+#include <cassert>
 
 #define UNAME_MIN_SIZE 3
 #define UNAME_MAX_SIZE 8
@@ -33,50 +33,47 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
     this->m_Send(MessageType::ALIASSET, userSocket, "Welcome, please submit a username.");
 
     SetSocketBlocking(true, userSocket);
-    // Get alias packet
-    char aliasBuffer[UNAME_MAX_SIZE+1];
-    std::memset(aliasBuffer, 0, sizeof(aliasBuffer));
 
-    // Alias packet
-    // alias:username\0
     std::shared_ptr<NetworkedUser> userStruct;
 
     while (true)
-    {    
-        int recvSize = recv(userSocket, aliasBuffer, sizeof(aliasBuffer), 0);
-        if (recvSize == -1)
-        {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "recv error WSAGetLastError(): ", GETSOCKETERRNO());
-            return;
-        }
-        if (recvSize == 0)
-        {
-            // Connection dropped
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "connection dropped");
-            return;
-        }
-        std::cout << "Size: " << recvSize << "name: " << aliasBuffer << std::endl;  
+    {
+        Packet asyncAliasPacket;
 
-        // Username has to between 3 and 8 characters
-        if ((recvSize < UNAME_MIN_SIZE+1) || (recvSize > UNAME_MAX_SIZE-1))
+        try
         {
-            this->m_Send(MessageType::ALIASDNY, userSocket, "Username not acceptable - needs to be 3 to 8 chars long.");
-        }
-        // Username is fine
-        else
-        {
-            // +1 to get rid of the prefix
+            if (!m_Recv(nullptr, &userSocket, asyncAliasPacket, true) || asyncAliasPacket.msgType != MessageType::ALIASSET)
+            {
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_AsyncNewConnectionHandle()", "Recieve error.");
+                return;
+            }  
+            
+            if (asyncAliasPacket.message.size() < UNAME_MIN_SIZE || asyncAliasPacket.message.size() > UNAME_MAX_SIZE)
+            {
+                throw("Username not acceptable - needs to be 3 to 8 chars long.");
+            }
+
+            for (char& c : asyncAliasPacket.message)
+            {
+                if (!std::isprint(c) || c == ' ')
+                    throw("Username has to contain printable characters.");
+            }
+
             userStruct = std::make_shared<NetworkedUser>(
-                userSocket, aliasBuffer+1, time(NULL), address
+                userSocket, asyncAliasPacket.message, time(NULL), address
             );
 
             // Attempt to add the username, check for uniqueness
-            if (m_AttemptAddNetworkedUser(userStruct))
-                break;
-            else
-                this->m_Send(MessageType::ALIASDNY, userSocket, "Username not acceptable - needs to be unique.");
+            if (!m_AttemptAddNetworkedUser(userStruct))
+                throw("Username taken - needs to be unique.");
+
+            // All passed
+            break;
         }
-        std::memset(aliasBuffer, 0, sizeof(aliasBuffer)); // If username was not accepted, we null the memory again
+        catch(const std::string& exceptionString)
+        {
+            this->m_Send(MessageType::ALIASDNY, userSocket, exceptionString);
+        }
     }
     SetSocketBlocking(false, userSocket);
 
@@ -321,66 +318,18 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
     // We have a packet to process
     else if (retCode != 0)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet available");
-        
-        int readBufferSize = 4;
-        char* readBuffer = (char*)calloc(readBufferSize, sizeof(char));
-        int bytesRecived = 0;
-        int totalBytes = 0;
+        Packet recievedPacket;
 
-        do {
-            // Our buffer is maxed, we need to extend it
-            if (totalBytes >= readBufferSize)
-            {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", 
-                    "Buffer maxed, doubling: ", readBufferSize, " bytes -> ", readBufferSize*2, " bytes");
-
-                // Fails
-                readBuffer = (char*)realloc(readBuffer, (readBufferSize * 2));
-                // Zero out our new memory
-                memset(readBuffer + readBufferSize, '\0', readBufferSize);
-                readBufferSize*=2; 
-            }
-
-            // Recieve the data from the socket
-            bytesRecived = recv(connectedUser->m_GetUserSocket(), readBuffer+totalBytes, readBufferSize/2, 0);
-            
-            // -1 = finished async recv
-            if (bytesRecived == -1)
-            {
-                // Acknowledge error
-                GETSOCKETERRNO();
-                break;
-            }
-            
-            else if (bytesRecived == 0)
-                break;
-
-            totalBytes += bytesRecived;
-        } while (true);
-
-        // Pass the memory to a string type (RAII)
-        std::string readBufferString(readBuffer, totalBytes);
-        free(readBuffer);
-        
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Total bytes recieved: ", totalBytes);
-
-        // No bytes recieved then we treat as disconnect
-        if (totalBytes == 0)
-        {
-            this->m_DisconnectUser(connectedUser);
+        // Returns true on success, errors on socket errors
+        if (!m_Recv(connectedUser, nullptr, recievedPacket, false))
             return false;
-        }
 
-        // We now handle the message accordingly
-        // Check first byte
-        byte msgType = static_cast<byte>(readBufferString[0]);
-        switch (msgType)
+        switch (recievedPacket.msgType)
         {
             // Regular message
             case MessageType::MESSAGE:
             {
-                messageOut = readBufferString.substr(1, readBufferString.size());
+                messageOut = recievedPacket.message;
                 return true;
             }
 
@@ -391,7 +340,7 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
             case MessageType::CONNUSERS:
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(msgType), "(", (int)msgType, ")");
+                Log::s_GetInstance()->m_LogWrite("Invalid packet type: ", MessageType::GetMessageType(recievedPacket.msgType), "(", (int)recievedPacket.msgType, ")");
                 break;
             }
         }
@@ -438,9 +387,19 @@ bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUs
     return success;
 }
 
+
 bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, std::string message)
 {
-    std::string fullMessage = static_cast<char>(messageType) + message;
+    // Make sure our payload is not too big to fit in a TCP packet
+
+    std::uint16_t payloadSize = 1 + message.size();
+    assert(payloadSize < MAXTCPPAYLOAD);
+
+    // Turn the integer into the two bytes to be written
+    std::uint8_t payloadSizeBytes[2] = {static_cast<std::uint8_t>(payloadSize >> 8), static_cast<std::uint8_t>(payloadSize & 0xFF)};
+
+    std::string fullMessage = std::string(reinterpret_cast<char*>(payloadSizeBytes), 2) + 
+                              static_cast<char>(messageType) + message;
 
     int bytesSent = send(recipient, fullMessage.c_str(), fullMessage.size(), 0);
     if (bytesSent == -1)
@@ -454,7 +413,77 @@ bool NetworkHandler::m_Send(unsigned char messageType, SOCKET recipient, std::st
 }
 
 
-bool NetworkHandler::m_DisconnectUser(spNetworkedUser userToDisconnect)
+bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Packet& incomingPacketOut, bool blocking)
+{
+    // Incoming packet:
+    // Bytes 0-1 (2bytes) message length
+    // Byte 2 (1byte) message type
+    // Byte 3-n (n bytes) message
+
+    // Either senderStruct or senderSock are nullptr. We can only use one
+    assert((senderStruct == nullptr) != (senderSock == nullptr));
+    SOCKET socket = (senderStruct == nullptr) ? *senderSock : senderStruct->m_GetUserSocket();
+
+    std::uint8_t packetSizeBuffer[2];
+
+    // Get packet size
+    int recvLengthSize = recv(socket, reinterpret_cast<char*>(packetSizeBuffer), sizeof(packetSizeBuffer), 0);
+
+    // Deal with error based on blocking status 
+    if (recvLengthSize == -1 && !blocking)
+    {
+        GETSOCKETERRNO();
+    }
+    else if (recvLengthSize == -1 && blocking)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Length recv (", GETSOCKETERRNO(), ")");
+        return false;
+    }
+    // No packet, connection dropped
+    else if (recvLengthSize == 0)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv length: connection dropped.");
+
+        // Drop the senderstruct. If regular socket we can just return
+        if (senderStruct != nullptr) m_DisconnectUser(senderStruct);
+        return false;
+    }
+
+    std::uint16_t packetSize;
+    packetSize = (static_cast<std::uint16_t>(packetSizeBuffer[0]) << 8) + static_cast<std::uint16_t>(packetSizeBuffer[1]);
+    
+    // Once we have the message length we can get the packet
+    std::uint8_t* packetBuffer = (std::uint8_t*)malloc(packetSize);
+
+    int recvPacketSize = recv(socket, reinterpret_cast<char*>(packetBuffer), sizeof(packetBuffer), 0);
+    if (recvPacketSize == -1 && !blocking)
+    {
+        GETSOCKETERRNO();
+    }
+    else if (recvPacketSize == -1 && blocking)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Packet recv (", GETSOCKETERRNO(), ")");
+        free(packetBuffer);
+        return false;
+    }
+    else if (recvLengthSize == 0)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv packet: connection dropped.");
+        free(packetBuffer);
+
+        // Drop the senderstruct. If regular socket we can just return
+        if (senderStruct != nullptr) m_DisconnectUser(senderStruct);
+        return false;
+    }
+
+    incomingPacketOut.msgType = packetBuffer[0];
+    incomingPacketOut.message = std::string(reinterpret_cast<char*>(packetBuffer), recvPacketSize-1);
+    free(packetBuffer);
+    return true;
+}
+
+
+bool NetworkHandler::m_DisconnectUser(const spNetworkedUser userToDisconnect)
 {
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_DisconnectUser()", "Disconnecting user: ", userToDisconnect->m_GetUserAlias(), " at ", userToDisconnect->m_GetUserAddress());
 

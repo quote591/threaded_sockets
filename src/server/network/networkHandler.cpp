@@ -36,10 +36,10 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
 
     std::shared_ptr<NetworkedUser> userStruct;
 
+    Packet asyncAliasPacket;
+    
     while (true)
     {
-        Packet asyncAliasPacket;
-
         try
         {
             if (!m_Recv(nullptr, &userSocket, asyncAliasPacket, true) || asyncAliasPacket.msgType != MessageType::ALIASSET)
@@ -80,11 +80,12 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
     SetSocketBlocking(false, userSocket);
 
     // Alias is accpeted, send an acknowledgement to the user and broadcast to all users
-    m_Send(MessageType::ALIASACK, userSocket, "");
+    m_Send(MessageType::ALIASACK, userSocket, asyncAliasPacket.message);
 
     std::stringstream ssConnectionMsg;
     ssConnectionMsg << userStruct->m_GetUserAlias() << " connected.";
     m_BroadcastMessage(MessageType::MESSAGE, nullptr, ssConnectionMsg.str());
+    m_BroadcastMessage(MessageType::CONNUSERS, nullptr, std::to_string(m_GetNetworkedUsersCount()));
 }
 
 
@@ -305,7 +306,7 @@ bool NetworkHandler::m_Accept()
 }
 
 
-bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string& messageOut)
+bool NetworkHandler::m_ReceiveMessage(spNetworkedUser connectedUser, std::string& messageOut)
 {
     WSAPOLLFD fds[1];
     fds[0].fd = connectedUser->m_GetUserSocket();
@@ -314,7 +315,7 @@ bool NetworkHandler::m_RecieveMessage(spNetworkedUser connectedUser, std::string
     int retCode = WSAPoll(fds, 1, 1);
     if (retCode == SOCKET_ERROR)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Error occured WSAPoll(): ", GETSOCKETERRNO());
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error occured WSAPoll(): ", GETSOCKETERRNO());
         return false;
     }
     // We have a packet to process
@@ -356,18 +357,22 @@ bool NetworkHandler::m_BroadcastMessage(unsigned char messageType, spNetworkedUs
 {
     std::stringstream ssMessage;
 
-    // Get current time
-    auto now = std::chrono::system_clock::now();
-    auto timer = std::chrono::system_clock::to_time_t(now);
-    std::tm bt = *std::localtime(&timer); 
-    ssMessage << std::put_time(&bt, "[%H:%M:%S] ");
+    // Only add the time if the message is a general message
+    if (messageType == MessageType::MESSAGE){
+        // Get current time
+        auto now = std::chrono::system_clock::now();
+        auto timer = std::chrono::system_clock::to_time_t(now);
+        std::tm bt = *std::localtime(&timer); 
+        ssMessage << std::put_time(&bt, "[%H:%M:%S] ");
 
-    // Non-server message message
-    if (sender != nullptr)
-    {
-        // We put the user name in it
-        ssMessage << sender->m_GetUserAlias() << ": ";
+        // Non-server message message
+        if (sender != nullptr)
+        {
+            // We put the user name in it
+            ssMessage << sender->m_GetUserAlias() << ": ";
+        }
     }
+
     ssMessage << message;
 
     bool success = true;
@@ -505,7 +510,7 @@ bool NetworkHandler::m_DisconnectUser(const spNetworkedUser userToDisconnect)
         std::stringstream ssDisconnectMsg;
         ssDisconnectMsg << userToDisconnect->m_GetUserAlias() << " has disconnected.";
         m_BroadcastMessage(MessageType::MESSAGE, nullptr, ssDisconnectMsg.str());
-        
+        m_BroadcastMessage(MessageType::CONNUSERS, nullptr, std::to_string(m_GetNetworkedUsersCount()));
         return true;
     }
 

@@ -19,6 +19,10 @@
 #define CONNECTIONINFOSTATUSOFFSET 25
 #define CONNECTEDUSERSOFFSET 61
 
+const int terminalMinColumns = 81;
+const int terminalMinRows = 13;
+
+
 // Static definition
 std::mutex Display::s_writeToScreenMutex;
 
@@ -85,26 +89,31 @@ void Display::s_ClearTerminal(void)
 #endif
 }
 
+// Helper function for the too small message on the terminal
+bool Display::s_IsWindowTooSmall(short columns, short rows)
+{
+    // If the window is too small then we dont display and print window too small
+    if (columns < terminalMinColumns || rows < terminalMinRows)
+    {
+        std::string tooSmallMsg = "Terminal too small.";
+        Display::s_GoToXY((columns/2)-(tooSmallMsg.size()/2), rows/2);
+        std::cout << tooSmallMsg;
+        return true;
+    }
+    return false;
+}
+
 
 void Display::s_Draw(MessageHandler* messageHandlerHandle)
 {
     std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
 
     short columns, rows;
-    s_GetConsoleMaxCoords(columns, rows);
+    Display::s_GetConsoleMaxCoords(columns, rows);
 
-    std::stringstream resolutionMessage; 
-    resolutionMessage << "Terminal resolution changed, redrawing. " << columns << "x" << rows;
-    Log::s_GetInstance()->m_LogWrite("Display::s_Draw()", resolutionMessage.str());
-    // If the window is too small then we dont display and print window too small
-    if (columns < 80 || rows < 12)
-    {
-        std::string tooSmallMsg = "Terminal too small.";
-        s_GoToXY((columns/2)-(tooSmallMsg.size()/2), rows/2);
-        std::cout << tooSmallMsg;
+    // Check if window is too small, if so we set it as so and return (no need to draw)
+    if (s_IsWindowTooSmall(columns, rows))
         return;
-    }
-
 
     for (int i = 1; i < columns; i++)
     {
@@ -130,21 +139,8 @@ void Display::s_Draw(MessageHandler* messageHandlerHandle)
         std::cout << wholeBlockChar;
     }
 
-
     // Draw info bar
-    // Username max size 8 chars
-    s_GoToXY(2, 1);
-    std::cout << "Username: ________";
-
-    // Connection status
-    s_GoToXY(CONNECTIONINFOSTATUSOFFSET, 1);
-    if (NetworkHandler::s_GetConnectedFlag() == false)
-        std::cout << "Connection status: Disconnected";
-    else
-        std::cout << "Connection status: Connected";
-
-    s_GoToXY(CONNECTEDUSERSOFFSET, 1);
-    std::cout << "Connected users: 3";
+    s_DrawInfoDisplay(messageHandlerHandle);
 
     // Draw previous messages
     auto displayMessages = messageHandlerHandle->m_GetDisplayMessages(rows-ROWTOTALPADDING);
@@ -220,6 +216,10 @@ void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
     short columns, rows;
     Display::s_GetConsoleMaxCoords(columns, rows);
 
+    // Check if window is too small, if so we set it as so and return (no need to draw)
+    if (s_IsWindowTooSmall(columns, rows))
+        return;
+
     std::string clearString = "";
     for (int i = 0; i < columns-2; i++)
         clearString+=" ";
@@ -253,12 +253,16 @@ void Display::s_DrawMessageDisplay(MessageHandler *messageHandlerHandle)
 }
 
 
+
 void Display::s_DrawInfoDisplay(MessageHandler *messageHandlerHandle)
 {
-    std::lock_guard<std::mutex> lock(Display::s_writeToScreenMutex);
     // Clear info bar
     short columns, rows;
     Display::s_GetConsoleMaxCoords(columns, rows);
+
+    // Check if window is too small, if so we set it as so and return (no need to draw)
+    if (s_IsWindowTooSmall(columns, rows))
+        return;
 
     std::string clearString = "";
     for (int i = 0; i < columns-2; i++)
@@ -269,7 +273,10 @@ void Display::s_DrawInfoDisplay(MessageHandler *messageHandlerHandle)
     // Draw info bar
     // Username max size 8 chars
     s_GoToXY(2, 1);
-    std::cout << "Username: ________";
+    std::cout << "Username: ";
+    std::string userNameDisplay = "________";
+    if (MessageHandler::m_aliasSet) userNameDisplay = MessageHandler::s_GetUserAlias();
+    std::cout << userNameDisplay;
 
     // Connection status
     s_GoToXY(CONNECTIONINFOSTATUSOFFSET, 1);
@@ -279,7 +286,8 @@ void Display::s_DrawInfoDisplay(MessageHandler *messageHandlerHandle)
         std::cout << "Connection status: Connected";
 
     s_GoToXY(CONNECTEDUSERSOFFSET, 1);
-    std::cout << "Connected users: 3";
+    std::cout << "Connected users: ";
+    std::cout << NetworkHandler::m_knownConnectedUsers;
 
     // After return cursor position to input box
     s_GoToXY(1+messageHandlerHandle->m_GetInputBufferSize(), rows-1);

@@ -16,8 +16,15 @@
 // 2 is our overhead of the packet 2 bytes for size
 constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
+// Forward decleration
+class MessageHandler;
+
 struct Packet
 {
+    Packet() = default;
+    Packet(unsigned char messageTypeIn, std::string messageIn) : 
+           msgType(messageTypeIn), message(messageIn) {}
+
     unsigned char msgType;
     std::string message;
 };
@@ -54,6 +61,7 @@ private:
 
 public:
     static std::atomic<int> m_knownConnectedUsers;
+    
 
     /// @brief Creates the socket and policies
     /// @param hostName ipAddress
@@ -69,8 +77,9 @@ public:
 
     /// @brief Check for a message from a user, if there is one we can recieve it
     /// @param messageOut is the returned message, will only be set if method return true
-    /// @return bool - if there was a message
-    bool m_RecieveMessage(std::string& messageOut);
+    /// @param p_messageHandler pointer to message handler
+    /// @return bool - if there was a message to print
+    bool m_ReceiveMessage(std::string& messageOut, MessageHandler* p_messageHandler);
 
 
     /// @brief Send a message to the connected socket

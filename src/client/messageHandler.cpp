@@ -10,6 +10,17 @@
 
 // Static init
 std::atomic<bool> MessageHandler::m_aliasSet(false);
+std::string MessageHandler::m_userAlias("");
+std::mutex MessageHandler::m_userAliasMutex;
+
+
+std::string ToLowerCase(std::string stringIn)
+{
+    std::string result = "";
+    for (auto ch : stringIn)
+        result += std::tolower(ch);
+    return result;
+}
 
 MessageHandler::MessageHandler()
 {
@@ -24,6 +35,17 @@ MessageHandler::~MessageHandler()
     // m_threadHandle.join();
 }
 
+void MessageHandler::s_SetUserAlias(const std::string &alias)
+{
+    std::lock_guard<std::mutex> lock(m_userAliasMutex);
+    m_userAlias = alias;
+}
+
+std::string MessageHandler::s_GetUserAlias(void)
+{
+    std::lock_guard<std::mutex> lock(m_userAliasMutex);
+    return m_userAlias;
+}
 
 void MessageHandler::m_PushInputBuffer(char c)
 {
@@ -73,7 +95,7 @@ int MessageHandler::m_GetInputBufferSize(void)
 void MessageHandler::m_PushMessageToSendQueue(unsigned char msgType, std::string msg)
 {
     std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
-    m_sendMessageQueue.push(std::move(std::make_unique<NetworkMessage>(msgType, msg)));
+    m_sendMessageQueue.push(std::move(std::make_unique<Packet>(msgType, msg)));
 }
 
 
@@ -84,10 +106,10 @@ int MessageHandler::m_GetSizeofSendQueue(void)
 }
 
 
-std::unique_ptr<NetworkMessage> MessageHandler::m_GetMessageFromSendQueue(void)
+std::unique_ptr<Packet> MessageHandler::m_GetMessageFromSendQueue(void)
 {
     std::lock_guard<std::mutex> lock_display(m_sendMessageQueueMutex);
-    std::unique_ptr<NetworkMessage> msg = std::move(m_sendMessageQueue.front());
+    std::unique_ptr<Packet> msg = std::move(m_sendMessageQueue.front());
     m_sendMessageQueue.pop();
     return msg;
 }

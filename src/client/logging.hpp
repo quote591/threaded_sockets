@@ -14,7 +14,6 @@ private:
 
     Log();
     ~Log();
-
     static Log* pInstance;
 
     std::mutex writeMutex;
@@ -24,9 +23,11 @@ public:
     // Singleton 
     void operator=(const Log&) = delete;
     
+
     /// @brief Thread safe get the instance of the class
     /// @return pointer to the instance of the class. If not created it will do
     static Log* s_GetInstance(void);
+
 
     /// @brief Logging function that writes message into file within logs/
     /// @param modelFunction - string of the method or system making the log
@@ -34,6 +35,8 @@ public:
     template<typename... Args>
     void m_LogWrite(const std::string& moduleFunction, Args&&... message);
 };
+
+
 
 // Final case for the multiple arguments
 template<typename T>

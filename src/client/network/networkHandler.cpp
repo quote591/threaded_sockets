@@ -1,6 +1,7 @@
 #include "networkHandler.hpp"
 #include "../logging.hpp"
 #include "../messageHandler.hpp"
+#include "../display.hpp"
 
 #include <sstream>
 #include <cassert>
@@ -9,6 +10,7 @@
 bool NetworkHandler::bConnectedFlag = false;
 std::mutex NetworkHandler::connectedFlagMutex;
 std::atomic<int> NetworkHandler::m_knownConnectedUsers = 0;
+
 
 std::string MessageType::GetMessageType(unsigned char msgbyte)
 {
@@ -112,13 +114,14 @@ bool NetworkHandler::m_Connect()
 }
 
 
-bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
+bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p_messageHandler)
 {
     WSAPOLLFD fds[1];
     fds[0].fd = socket_peer;
     fds[0].events = POLLRDNORM;  
 
-    int retCode = WSAPoll(fds, 1, 1);
+    const int POLL_TIMEOUT_MS = 1;
+    int retCode = WSAPoll(fds, 1, POLL_TIMEOUT_MS);
     if (retCode == SOCKET_ERROR)
     {
         std::stringstream recvSS; recvSS << "Error occured WSAPoll(): " << errno;
@@ -127,16 +130,16 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
 
     else if (retCode != 0)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet available");
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet available");
 
         Packet networkPacket;
         if (!m_Recv(socket_peer, networkPacket))
         {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Error occured in m_Recv()");
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error occured in m_Recv()");
             return false;
         }
 
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Packet data: ", (int)networkPacket.msgType, " : ", networkPacket.message);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet data: ", (int)networkPacket.msgType, " : ", networkPacket.message);
         
         // We now handle the message accordingly
         switch (networkPacket.msgType)
@@ -144,7 +147,7 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
             // Print out message
             case MessageType::ALIASACK:
             {
-                // TODO update alias info heading
+                p_messageHandler->s_SetUserAlias(networkPacket.message);
                 MessageHandler::m_aliasSet = true;
                 messageOut = "You've joined the chat room.";
                 return true;
@@ -160,14 +163,22 @@ bool NetworkHandler::m_RecieveMessage(std::string& messageOut)
 
             case MessageType::CONNUSERS:
             {
-                NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.message);
-                // TODO Update connusers info heading
+                try{
+                    NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.message);
+                }
+                catch (const std::invalid_argument& e)
+                {
+                    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: " + networkPacket.message);
+                    return false;
+                }
+
+                Display::s_DrawInfoDisplayMux(p_messageHandler);
                 return false;
             }
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.msgType), "(", (int)networkPacket.msgType, ")");
-                break;
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.msgType), "(", (int)networkPacket.msgType, ")");
+                return false;
             }
         }
         // false

@@ -139,7 +139,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
             return false;
         }
 
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet data: ", (int)networkPacket.msgType, " : ", networkPacket.message);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.msgType), ") : ", networkPacket.message);
         
         // We now handle the message accordingly
         switch (networkPacket.msgType)

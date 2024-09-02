@@ -1,8 +1,5 @@
 #include "logging.hpp"
-
 #include <ctime>
-#include <sstream>
-#include <thread>
 
 // Static
 Log* Log::pInstance = nullptr;
@@ -15,8 +12,7 @@ Log::Log()
     char fileNameBuffer[64];
 
     // day [00-31] month [00-12] year[00-99] - hour [00-24] minute [00-60] second [00-60]
-    if (!(std::strftime(fileNameBuffer, sizeof(fileNameBuffer), "../../../logs/LogServer_%d_%m_%y-%H_%M_%S.txt", std::localtime(&now))))
-        throw("strftime error.");
+    std::strftime(fileNameBuffer, sizeof(fileNameBuffer), "../../../logs/LogServer_%d_%m_%y-%H_%M_%S.txt", std::localtime(&now));
 
     f.open(fileNameBuffer, std::ios::out);
 }

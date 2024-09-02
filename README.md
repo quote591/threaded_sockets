@@ -29,3 +29,9 @@ mingw32-make.exe
 ```
 
 Then you can run the executable within the build folder. The client is called `main.exe` and the server is called `servermain.exe`
+
+# Not working?
+
+- If you are having issues with communicating you can first check the output log of either the client or server in the logs folder.
+
+- If the client is not connecting then check the local IP address in the main.cpp of the client code. As this project is quite infant the IP address is hard coded. Change it to the servers ip address.

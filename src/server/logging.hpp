@@ -78,7 +78,6 @@ void Log::m_LogWrite(const std::string& moduleFunction, Args&&... message)
     ss << "[" << mins_elapsed << ":" << sec_elapsed << ":" << mss_elapsed << "]"
         << "[" << moduleFunction << "\t] : " << oss.str() << "(th_id " << std::this_thread::get_id() << ")" << "\n";
     
-    // std::cout << ss.str() << " " << ss.str().size() << std::endl;
     f.write(ss.str().c_str(), ss.str().size());
     f.flush();
 }

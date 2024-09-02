@@ -101,7 +101,7 @@ void DrawThreadMethod(void)
         short column, row;
         Display::s_GetConsoleMaxCoords(column, row);
 
-        if (oldColumn != column || oldRow != row /*|| updateDraw*/)
+        if (oldColumn != column || oldRow != row)
         {
             Log::s_GetInstance()->m_LogWrite("Display::s_Draw()", "Terminal resolution changed, redrawing. ", column, "x", row);
             Display::s_ClearTerminal();
@@ -122,7 +122,6 @@ int main()
     // Lifetime of all threads is managed by the main thread
     std::thread messageThread(MessageHandler::m_HandleInput, p_messageHandler);
 
-
     Display::s_SetTerminalModeRaw();
 
     // Another thread needed for Drawing to the screen
@@ -130,7 +129,6 @@ int main()
 
     // Another thread needed for handing of network traffic.
     std::thread networkThread(HandleNetwork);
-    
 
     // Cleanup
     messageThread.join();

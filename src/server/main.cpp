@@ -11,32 +11,18 @@
 
 NetworkHandler* p_networkHandler;
 
-std::atomic<int> returnThreads{0};
+std::atomic<bool> returnThreads{false};
 
 const std::string port = "27011";
 
 // UpdateRate
-#define THREADUPDATERATE 60 // hz
-constexpr int msThreadDelay = 1000/THREADUPDATERATE;
+constexpr int threadUpdateFrequency = 60;
+constexpr int msThreadDelay = 1000/threadUpdateFrequency;
 
 // Should run a certain amount of updates a second (60hz)
 // 1000/60 ms wait per cycle. 
 void HandleNetwork(void)
 {
-    // Create socket
-    // Set listen
-    // 
-    // Non blocking accept, we check if there are any
-    // If so spool up async connection 
-    //      in the async call, attempt to make the socket blocking to recieve the name packet. (Save cpu cycles)
-    //      after the socket has been processed, we can switch it back to non-blocking
-    //
-    // Check each socket if there is incoming connection.
-    //
-    // Yes, we can broadcast
-    
-    // Check for incoming connections
-
     p_networkHandler = new NetworkHandler();
     p_networkHandler->m_Create(port);
     p_networkHandler->m_Listen(10);
@@ -101,7 +87,7 @@ int main()
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
     }
     // Indicate to thread to return
-    returnThreads^=1;
+    returnThreads = true;
     p_networkHandler->m_Shutdown();
     networkThread.join();
     Log::s_GetInstance()->m_LogWrite("Main thread", "Network thread shutdown.");

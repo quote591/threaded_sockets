@@ -210,5 +210,5 @@ void MessageHandler::m_HandleInput(void)
 void MessageHandler::m_ReturnThreads(void)
 {
     Log::s_GetInstance()->m_LogWrite("MessageHandler::m_ReturnThreads()", "Updating m_threadReturn flag");
-    m_threadReturn^=1;
+    m_threadReturn = true;
 }

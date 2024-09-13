@@ -136,6 +136,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
         if (!m_Recv(socket_peer, networkPacket))
         {
             Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error occured in m_Recv()");
+            NetworkHandler::s_SetConnectedFlag(false);
             return false;
         }
 
@@ -211,7 +212,13 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
 
     if (recvLengthSize == -1)
     {
-        GETSOCKETERRNO();
+        int error = GETSOCKETERRNO();
+        if (error == WSAECONNRESET)
+        {
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
+            return false;
+        }
+
     }
     else if (recvLengthSize == 0)
     {
@@ -229,7 +236,12 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
     int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
     if (recvPacketSize == -1)
     {
-        GETSOCKETERRNO();
+        int error = GETSOCKETERRNO();
+        if (error == WSAECONNRESET)
+        {
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
+            return false;
+        }
     }
     else if (recvLengthSize == 0)
     {

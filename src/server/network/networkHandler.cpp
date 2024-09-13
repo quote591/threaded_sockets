@@ -322,7 +322,6 @@ bool NetworkHandler::m_ReceiveMessage(spNetworkedUser connectedUser, std::string
     else if (retCode != 0)
     {
         Packet recievedPacket;
-
         // Returns true on success, errors on socket errors
         if (!m_Recv(connectedUser, nullptr, recievedPacket, false))
             return false;
@@ -439,11 +438,18 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
     // Deal with error based on blocking status 
     if (recvLengthSize == -1 && !blocking)
     {
-        GETSOCKETERRNO();
+        int error = GETSOCKETERRNO();
+        if (error == WSAECONNRESET)
+        {
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
+    
+            if (senderStruct != nullptr) m_DisconnectUser(senderStruct);
+            return false;
+        }
     }
     else if (recvLengthSize == -1 && blocking)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Length recv (", GETSOCKETERRNO(), ")");
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Length recv errno (", GETSOCKETERRNO(), ")");
         return false;
     }
     // No packet, connection dropped
@@ -453,6 +459,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
 
         // Drop the senderstruct. If regular socket we can just return
         if (senderStruct != nullptr) m_DisconnectUser(senderStruct);
+        
         return false;
     }
 
@@ -465,11 +472,17 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, Pa
     int recvPacketSize = recv(socket, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
     if (recvPacketSize == -1 && !blocking)
     {
-        GETSOCKETERRNO();
+        int error = GETSOCKETERRNO();
+        if (error == WSAECONNRESET)
+        {
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
+            return false;
+        }
     }
     else if (recvPacketSize == -1 && blocking)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Packet recv (", GETSOCKETERRNO(), ")");
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Error recieved (", GETSOCKETERRNO(), ")");
+
         free(packetBuffer);
         return false;
     }
@@ -504,6 +517,7 @@ bool NetworkHandler::m_DisconnectUser(const spNetworkedUser userToDisconnect)
     // found, delete
     if (it != std::end(connectedUsers))
     {
+        CLOSESOCKET(it->get()->m_GetUserSocket());
         connectedUsers.erase(it);
         connectedUserVectorMutex.unlock();
 
@@ -511,6 +525,7 @@ bool NetworkHandler::m_DisconnectUser(const spNetworkedUser userToDisconnect)
         ssDisconnectMsg << userToDisconnect->m_GetUserAlias() << " has disconnected.";
         m_BroadcastMessage(MessageType::MESSAGE, nullptr, ssDisconnectMsg.str());
         m_BroadcastMessage(MessageType::CONNUSERS, nullptr, std::to_string(m_GetNetworkedUsersCount()));
+        
         return true;
     }
 

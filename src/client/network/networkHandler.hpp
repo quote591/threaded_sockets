@@ -44,6 +44,9 @@ namespace MessageType{
         // Server info
         CONNUSERS,  // Server -> Client Number of connected users
 
+        // Secure connection
+        SECURECON, // Client -> Server Sends their DH pub Key, Server -> Client responds with their own DH pub Key 
+
     };
 
     std::string GetMessageType(unsigned char msgbyte);

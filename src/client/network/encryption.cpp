@@ -1,8 +1,12 @@
 #include "encryption.hpp"
+#include "../logging.hpp"
 
 #include <openssl/dh.h>
+#include <openssl/rand.h>
 
 #include <cmath>
+#include <cassert>
+#include <cstring>
 
 int Encryption::EncryptData(const unsigned char& plainText, const size_t plainTextLen, const unsigned char& iv, std::unique_ptr<unsigned char[]>& cipherTextOut)
 {
@@ -41,7 +45,7 @@ int Encryption::EncryptData(const unsigned char& plainText, const size_t plainTe
 	}
 	catch (const char* err)
 	{
-
+        Log::s_GetInstance()->m_LogWrite("Encryption::EncryptData", "Error: ", err);
         EVP_CIPHER_CTX_free(ctx);
         return -1;
 	}
@@ -81,11 +85,11 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
 	}
 	catch (const char* err)
 	{
-
+        Log::s_GetInstance()->m_LogWrite("Encryption::DecryptData", "Error: ", err);
         EVP_CIPHER_CTX_free(ctx);
 		return -1;
 	}
-
+    dataOut = std::move(upDecryptedText);
 	// Free context
 	EVP_CIPHER_CTX_free(ctx);
 	return plainTextLength;
@@ -114,17 +118,56 @@ bool Encryption::CreateDHKeys(void)
         
         if (1 != EVP_PKEY_keygen(ctx, &this->dhKey))
             throw ("Error keygen.");
-
-        
     }
     catch(const char* err)
     {
+        Log::s_GetInstance()->m_LogWrite("Encryption::CreateDHKeys", "Error: ", err);
         EVP_PKEY_CTX_free(ctx);
         EVP_PKEY_free(params);
         return false;
     }
+
     EVP_PKEY_CTX_free(ctx);
     EVP_PKEY_free(params);
+    return true;
+}
+
+bool Encryption::SetDHPublicPeer(const unsigned char &pubKey, const size_t pubKeySize)
+{
+	DH* dh = nullptr;
+	BIGNUM* pubKeyBigNum = nullptr;
+
+	try
+	{
+		// Create DH 
+		dh = DH_get_2048_256();
+		if (!dh)
+			throw("Create DH failed.");
+
+		// Convert public key to bignum
+		pubKeyBigNum = BN_bin2bn(&pubKey, pubKeySize, pubKeyBigNum);
+		if (!pubKeyBigNum)
+			throw("Converting public key to bignum failed.");
+
+		// Set public key to DH struct
+		if (!DH_set0_key(dh, pubKeyBigNum, nullptr))
+			throw("Set public key in DH struct failed.");
+
+		this->dhPeerKey = EVP_PKEY_new();
+		if (!this->dhPeerKey)
+			throw("Creating PKEY struct failed.");
+
+		if (!EVP_PKEY_assign_DH(this->dhPeerKey, dh))
+			throw("Assigning DH to keystruct failed.");
+	}
+	catch(const char* err)
+	{
+        Log::s_GetInstance()->m_LogWrite("Encryption::CreateDHPKEY", "Error: ", err);
+		// If err, free the PKEY struct
+		EVP_PKEY_free(this->dhPeerKey);
+        return false;
+	}
+
     return true;
 }
 
@@ -141,12 +184,12 @@ bool Encryption::GetDHPubKey(unsigned char *DHpublicKeyOut)
         // Get private key from the struct
         // 0 - we do not own the returned keys, the DH* from dhKey does
         DH_get0_key(dh, &pubKey, nullptr);
-        if (256 != BN_bn2bin(pubKey, DHpublicKeyOut))
+        if (DH_DERIVED_SIZE_BYTES != BN_bn2bin(pubKey, DHpublicKeyOut))
             throw("DH public key was not 256 bytes.");
     }
     catch(const char* err)
     {
-
+        Log::s_GetInstance()->m_LogWrite("Encryption::GetDHPubKey", "Error: ", err);
         return false;
     }
     return true;
@@ -154,15 +197,114 @@ bool Encryption::GetDHPubKey(unsigned char *DHpublicKeyOut)
 
 bool Encryption::DeriveSecretKey(void)
 {
+    EVP_PKEY_CTX* ctx;
 
+    unsigned char skey[DH_DERIVED_SIZE_BYTES];
+    size_t skeyLen;
 
-    // Use both DH keys to get 256 byte shared key
+    try
+    {
+        ctx = EVP_PKEY_CTX_new(this->dhKey, nullptr);
+        if (!ctx)
+            throw ("Failed to create new PKEY context.");
+
+        if (1 != EVP_PKEY_derive_init(ctx))
+            throw ("Derive init failed.");
+
+        // Use both DH keys to get 256 byte shared key
+        if (1 != EVP_PKEY_derive_set_peer(ctx, this->dhPeerKey))
+            throw ("Derive set peer failed.");
+        
+        if (1 != EVP_PKEY_derive(ctx, nullptr, &skeyLen))
+            throw ("Failed to get derived key length.");
+        if (skeyLen != DH_DERIVED_SIZE_BYTES)
+            throw ("Derived key length is not 256 bytes.");
+        
+        if (1 != EVP_PKEY_derive(ctx, skey, &skeyLen))
+            throw ("Derived key generate failed.");
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("Encryption::DeriveSecretKey", "Error: ", err);
+        EVP_PKEY_CTX_free(ctx);
+        return false;
+    }
+
+    EVP_PKEY_CTX_free(ctx);
     
     // Use sha256 to turn the key into a 32 byte key for AES
-    return false;
+    return this->CalculateSHA256(*skey, DH_DERIVED_SIZE_BYTES, this->key);
 }
 
-bool Encryption::CalculateSHA256(const unsigned char* data, const size_t dataSize, unsigned char* hashOut)
+bool Encryption::CreatePacketSig(const unsigned char& packetPayload, const size_t packetPayloadLen, const unsigned char& IV, unsigned char* encSignatureOut)
+{
+    // 48 bytes for signature
+
+    std::unique_ptr<unsigned char[]> encryptedHash;
+    try
+    {
+        unsigned char calculatedHash[SHA256_BYTES];
+        if (!this->CalculateSHA256(packetPayload, packetPayloadLen, calculatedHash))
+            throw ("CalculateSHA256 failed.");
+        
+        if (-1 == this->EncryptData(*calculatedHash, SHA256_BYTES, IV, encryptedHash))
+            throw ("EncryptedData failed.");
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("Encryption::CreatePacketSig", "Error: ", err);
+        return false;
+    }
+    std::memcpy(encSignatureOut, encryptedHash.get(), SHA256_AES_ENCRYPTED_BYTES);
+    return true;
+}
+
+bool Encryption::VerifyPacket(const unsigned char &packetHash, const unsigned char& IV, const unsigned char &packetPayload, const size_t packetPayloadLen)
+{
+    // packetHash - 48 bytes (encrypted)
+    // 32 byte hash encrypted with AES256 -> 48 bytes
+    std::unique_ptr<unsigned char[]> decryptedHash; 
+    try
+    {
+        int hashSize = this->DecryptData(packetHash, SHA256_AES_ENCRYPTED_BYTES, IV, decryptedHash);
+
+        // Check its a sha256
+        assert(hashSize == SHA256_BYTES);
+
+        unsigned char calculatedHash[SHA256_BYTES];
+        // Take our own hash
+        if (!this->CalculateSHA256(packetPayload, packetPayloadLen, calculatedHash))
+            throw ("CalculateSHA256 failed.");
+        
+        if (std::memcmp(decryptedHash.get(), calculatedHash, SHA256_BYTES))
+            throw ("Invalid packet signature.");
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("Encryption::VerifyPacket", "Error: ", err);
+        return false;
+    }
+
+    // Verified hash
+    return true;
+}
+
+bool Encryption::GenerateIV(unsigned char *ivOut)
+{
+    try
+    {
+        if (1 != RAND_bytes(ivOut, AESIV_SIZE_BYTES))
+            throw ("RAND_pseudo_bytes failed.");
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("Encryption::GenerateIV", "Error: ", err);
+        return false;
+    }
+    return true;
+}
+
+bool Encryption::CalculateSHA256(const unsigned char& data, const size_t dataSize, unsigned char* hashOut)
 {
     EVP_MD_CTX* ctx;
     try
@@ -172,14 +314,14 @@ bool Encryption::CalculateSHA256(const unsigned char* data, const size_t dataSiz
             throw ("Failed allocation from EVP_MD_CTX_new().");
         if (1 != EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr))
             throw ("EVP_DigestInit_ex failed.");
-        if (1 != EVP_DigestUpdate(ctx, data, dataSize))
+        if (1 != EVP_DigestUpdate(ctx, &data, dataSize))
             throw ("EVP_DigestUpdate failed.");
         if (1 != EVP_DigestFinal_ex(ctx, hashOut, nullptr))
             throw ("EVP_DigestFinal_ex failed.");
     }
     catch(const char* err)
     {
-        // TODO
+        Log::s_GetInstance()->m_LogWrite("Encryption::CalculateSHA256", "Error: ", err);
 
         // Dealocate all resources
         EVP_MD_CTX_free(ctx);
@@ -187,6 +329,11 @@ bool Encryption::CalculateSHA256(const unsigned char* data, const size_t dataSiz
     }
     EVP_MD_CTX_free(ctx);
     return true;
+}
+
+Encryption::Encryption()
+{
+    this->CreateDHKeys();
 }
 
 Encryption::~Encryption()

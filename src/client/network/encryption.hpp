@@ -2,12 +2,12 @@
 
 #include <memory>
 
-
-
-constexpr int AES_KeyLen_bits = 256;
-constexpr int AES_IVLen_bits = 128;
-constexpr int AES_KeyLen_bytes = AES_KeyLen_bits/8;
-constexpr int AES_IVLen_bytes = AES_IVLen_bits/8;
+// Memory size constants
+#define AESKEY_SIZE_BYTES 32
+#define AESIV_SIZE_BYTES 16
+#define DH_DERIVED_SIZE_BYTES 256
+#define SHA256_BYTES 32
+#define SHA256_AES_ENCRYPTED_BYTES 48
 
 class Encryption
 {
@@ -17,29 +17,31 @@ private:
     // 01 - Control byte (type of packet)
     // 02 03 - Size of encrypted packet
     // These bytes are needed for the application to determine how to deal with and read the packet
-    // 
-    // Packet structure
-    // 00-02 (control and packet size)
-    // 03-35 (32 bytes) HMAC-SHA256 hash of IV and payload
-    // 35-51 (16 bytes) AES-256-CBC IV
-    // 52-nn (n bytes)  AES-256-CBC message payload
     //
     //    |--|------------|------|---------------------------------|
-    // Ctrl+Size   HMAC      IV            AES ENC Payload
+    // Ctrl+Size   EncryptedChecksum(sha256(IV||AES))      IV            AES ENC Payload
     //
+    //  3 bytes for control and packet length
+    //  E(HASH(IV||EPACKET)) - 48 bytes
+    //              
     // Determined AES KEY from DH agreed key
     // The dh shared key will be 256 bytes but a hash like sha256 can be used to get our 256 bits (16 bytes) key.
     // CANNOT BE sent over network
-    unsigned char key[AES_KeyLen_bytes];
+    unsigned char key[AESKEY_SIZE_BYTES];
     
     // Initalization vector, can be sent over the network.
     // Should have MAC code to determine integrity
-    unsigned char IV[AES_IVLen_bytes];
+    unsigned char IV[AESIV_SIZE_BYTES];
 
     // Public peer
-    EVP_PKEY* dhPeerKey;
+    EVP_PKEY* dhPeerKey = nullptr;
     // Public and private client key
-    EVP_PKEY* dhKey;
+    EVP_PKEY* dhKey = nullptr;
+
+    /// @brief Creates the public-private key pair for the Diffie Hellman key exchange
+    /// @return Bool - success
+    bool CreateDHKeys(void);
+
 
 public:
 
@@ -61,30 +63,33 @@ public:
     int DecryptData(const unsigned char& cipherData, const size_t cipherDataLen, const unsigned char& iv, std::unique_ptr<unsigned char[]>& dataOut);
 
 
-    /// @brief Creates the public-private key pair for the Diffie Hellman key exchange
+    /// @brief Return the DH public key bytes 
+    /// @param DHpublicKeyOut buffer to write key to (256 bytes)
     /// @return Bool - success
-    bool CreateDHKeys(void);
-
-
     bool GetDHPubKey(unsigned char* DHpublicKeyOut);
 
+    bool SetDHPublicPeer(const unsigned char& pubKey, const size_t pubKeySize);
+
+
     /// @brief Will derive the AES secret key from both DH keys
-    /// @return success
+    /// @return Bool - success
     bool DeriveSecretKey(void);
 
 
-    bool CreateHMAC(const unsigned char* packetPayload, unsigned char* hmacHashOut);
 
+    bool CreatePacketSig(const unsigned char& packetPayload, const size_t packetPayloadLen, const unsigned char& IV, unsigned char* encSignatureOut);
     
-    bool VerifyHMAC(const unsigned char* hmacHash, const unsigned char* packetPayload);
 
+    bool VerifyPacket(const unsigned char &packetHash, const unsigned char& IV, const unsigned char &packetPayload, const size_t packetPayloadLen);
+
+    bool GenerateIV(unsigned char* ivOut);
 
     /// @brief Create a sha256 hash from input data
     /// @param data Bytes to hash
     /// @param dataSize Number of bytes to hash
     /// @param hashOut Buffer to write the hash to
     /// @return Bool - success
-    bool CalculateSHA256(const unsigned char* data, const size_t dataSize, unsigned char* hashOut);
+    bool CalculateSHA256(const unsigned char& data, const size_t dataSize, unsigned char* hashOut);
 
 
     // Generate all relevant contexts and keys

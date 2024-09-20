@@ -5,6 +5,8 @@
 
 #include <sstream>
 #include <cassert>
+#include <cstring>
+#include <memory>
 
 // Static declares
 bool NetworkHandler::bConnectedFlag = false;
@@ -23,6 +25,12 @@ std::string MessageType::GetMessageType(unsigned char msgbyte)
         case CONNUSERS: return "Connected users control";
         default:        return "Unknown";
     }
+}
+
+
+NetworkHandler::NetworkHandler()
+{
+    upEncryptionHandler = std::make_unique<Encryption>();
 }
 
 
@@ -95,7 +103,21 @@ bool NetworkHandler::m_Connect()
         return false;
     }
     
+    // Setup encryption keys
+    unsigned char publicKey[DH_PUBLICKEY_SIZE_BYTES];
+    upEncryptionHandler->GetDHPubKey(publicKey);
+    this->m_Send(MessageType::SECURECON, publicKey, DH_PUBLICKEY_SIZE_BYTES);
     
+    // Recieve the peer public key
+    Packet recievedPacket;
+    do{
+        this->m_Recv(socket_peer, recievedPacket);
+    } while (recievedPacket.GetMsgType() != MessageType::SECURECON);
+ 
+    // Set our public peer key then derive secret key
+    upEncryptionHandler->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize());    
+    upEncryptionHandler->DeriveSecretKey();
+
     freeaddrinfo(peer_address);
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
     NetworkHandler::s_SetConnectedFlag(true);
@@ -140,15 +162,15 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
             return false;
         }
 
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.msgType), ") : ", networkPacket.message);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.GetMsgType()), ") : ", networkPacket.GetBytes());
         
         // We now handle the message accordingly
-        switch (networkPacket.msgType)
+        switch (networkPacket.GetMsgType())
         {
             // Print out message
             case MessageType::ALIASACK:
             {
-                p_messageHandler->s_SetUserAlias(networkPacket.message);
+                p_messageHandler->s_SetUserAlias(networkPacket.GetChars());
                 MessageHandler::m_aliasSet = true;
                 messageOut = "You've joined the chat room.";
                 return true;
@@ -158,18 +180,18 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
             case MessageType::ALIASDNY:
             case MessageType::MESSAGE:
             {
-                messageOut = networkPacket.message;
+                messageOut = std::string(networkPacket.GetChars());
                 return true;
             }
 
             case MessageType::CONNUSERS:
             {
                 try{
-                    NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.message);
+                    NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.GetChars());
                 }
                 catch (const std::invalid_argument& e)
                 {
-                    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: " + networkPacket.message);
+                    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: ", networkPacket.GetChars());
                     return false;
                 }
 
@@ -178,7 +200,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
             }
             default:
             {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.msgType), "(", (int)networkPacket.msgType, ")");
+                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.GetMsgType()), "(", (int)networkPacket.GetMsgType(), ")");
                 return false;
             }
         }
@@ -188,8 +210,9 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
 }
 
 
-bool NetworkHandler::m_Send(unsigned char msgType, const std::string& msg)
+bool NetworkHandler::m_Send(const unsigned char msgType, const std::string& msg)
 {
+    // 1 for the message type, size of the 2 bytes that say size is not included
     std::uint16_t payloadSize = 1 + msg.size();
     assert(payloadSize < MAXTCPPAYLOAD);
 
@@ -203,55 +226,100 @@ bool NetworkHandler::m_Send(unsigned char msgType, const std::string& msg)
 }
 
 
+bool NetworkHandler::m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize)
+{
+    try
+    {
+        // Setup encryption hashes, IVs and payload
+        unsigned char IV[AESIV_SIZE_BYTES];
+        if (!upEncryptionHandler->GenerateIV(IV))
+            throw ("Generate IV failed.");
+
+        std::unique_ptr<unsigned char[]> encryptedPayload;
+        int encryptedPayloadSize = upEncryptionHandler->EncryptData(*data, dataSize, *IV, encryptedPayload);
+        if (encryptedPayloadSize == -1)
+            throw ("EncryptData failed.");
+        
+        // Create buffer for IV and enc payload to generate signature for
+        std::unique_ptr<unsigned char[]> packetIVPayload = std::make_unique<unsigned char[]>(AESIV_SIZE_BYTES + encryptedPayloadSize);
+        std::memcpy(packetIVPayload.get(), IV, 16);
+        std::memcpy(packetIVPayload.get() + 16, encryptedPayload.get(), encryptedPayloadSize);
+
+        unsigned char signature[SHA256_AES_ENCRYPTED_BYTES];
+        if(!upEncryptionHandler->CreatePacketSig(*packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize, *IV, signature))
+            throw ("Create packet signature failed.");
+
+        // 1 is the message type
+        std::uint16_t payloadSize = 1 + SHA256_AES_ENCRYPTED_BYTES + AESIV_SIZE_BYTES + encryptedPayloadSize;
+        // Turn the 16 bit integer into two bytes 0-65535
+        std::uint8_t payloadSizeBytes[2] = {static_cast<std::uint8_t>(payloadSize >> 8), static_cast<std::uint8_t>(payloadSize & 0xFF)};
+        
+        // +2 for size bytes
+        std::unique_ptr<unsigned char[]> dataToSend = std::make_unique<unsigned char[]>(payloadSize+2);
+        std::memcpy(dataToSend.get(), payloadSizeBytes, 2);                             // Size data
+        std::memcpy(dataToSend.get()+2, &msgType, 1);                                   // Message type data
+        std::memcpy(dataToSend.get()+3, signature, SHA256_AES_ENCRYPTED_BYTES);         // Encrypted Signature
+        std::memcpy(dataToSend.get()+3+SHA256_AES_ENCRYPTED_BYTES, 
+                    packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize);    // Encrypted Signature
+
+        // +2 for the bytes for size aswell as the data and msgType byte
+        return send(socket_peer, reinterpret_cast<const char*>(dataToSend.get()), payloadSize+2, 0);
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send", "Error: ", err);
+        return false;
+    }
+}
+
+
 bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
 {
     std::uint8_t packetSizeBuffer[2];
+    std::uint8_t* packetBuffer = nullptr;
 
-    // Get packet size
-    int recvLengthSize = recv(connection, reinterpret_cast<char*>(packetSizeBuffer), sizeof(packetSizeBuffer), 0);
-
-    if (recvLengthSize == -1)
+    try
     {
-        int error = GETSOCKETERRNO();
-        if (error == WSAECONNRESET)
+        // Get packet size
+        int recvLengthSize = recv(connection, reinterpret_cast<char*>(packetSizeBuffer), sizeof(packetSizeBuffer), 0);
+
+        if (recvLengthSize == -1)
         {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
-            return false;
+            int error = GETSOCKETERRNO();
+            if (error == WSAECONNRESET)
+                throw ("Socket was forcefully reset by connected peer.");
+
         }
+        else if (recvLengthSize == 0)
+            throw ("recv length 0: connection dropped.");
 
-    }
-    else if (recvLengthSize == 0)
-    {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv length 0: connection dropped.");
-        return false;
-    }
+        std::uint16_t packetSize;
+        packetSize = (static_cast<std::uint16_t>(packetSizeBuffer[0]) << 8) + static_cast<std::uint16_t>(packetSizeBuffer[1]);
+        
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet size recieved: ", packetSize);
+        // Once we have the message length we can get the packet
+        packetBuffer = (std::uint8_t*)malloc(packetSize);
 
-    std::uint16_t packetSize;
-    packetSize = (static_cast<std::uint16_t>(packetSizeBuffer[0]) << 8) + static_cast<std::uint16_t>(packetSizeBuffer[1]);
-    
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet size recieved: ", packetSize);
-    // Once we have the message length we can get the packet
-    std::uint8_t* packetBuffer = (std::uint8_t*)malloc(packetSize);
-
-    int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
-    if (recvPacketSize == -1)
-    {
-        int error = GETSOCKETERRNO();
-        if (error == WSAECONNRESET)
+        int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
+        if (recvPacketSize == -1)
         {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "Socket was forcefully reset by connected peer.");
-            return false;
+            int error = GETSOCKETERRNO();
+            if (error == WSAECONNRESET)
+                throw ("Socket was forcefully reset by connected peer.");
         }
+        else if (recvLengthSize == 0)
+            throw ("recv packet 0: connection dropped.");
+
+        incomingPacketOut.SetMessageType(packetBuffer[0]);
+        incomingPacketOut.SetBytes(packetBuffer+1, recvPacketSize-1);
     }
-    else if (recvLengthSize == 0)
+    catch (const char* err)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv()", "recv packet 0: connection dropped.");
-        free(packetBuffer);
-        return false;
+        if (packetBuffer != nullptr)
+            free(packetBuffer);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Error: ", err);
     }
 
-    incomingPacketOut.msgType = packetBuffer[0];
-    incomingPacketOut.message = std::string(reinterpret_cast<char*>(packetBuffer+1), recvPacketSize-1);
     free(packetBuffer);
     return true;
 }
@@ -263,8 +331,9 @@ bool NetworkHandler::m_Close(void)
     CLOSESOCKET(socket_peer);
 
 #ifdef _WIN32
-WSACleanup();
+    WSACleanup();
 #endif
+
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Close()", "Socket closed.");
     NetworkHandler::s_SetConnectedFlag(false);
     return true;

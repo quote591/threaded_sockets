@@ -289,11 +289,11 @@ bool Encryption::VerifyPacket(const unsigned char &packetHash, const unsigned ch
     return true;
 }
 
-bool Encryption::GenerateIV(unsigned char *ivOut)
+bool Encryption::GenerateIV(unsigned char *ivOut, int bytes)
 {
     try
     {
-        if (1 != RAND_bytes(ivOut, AESIV_SIZE_BYTES))
+        if (1 != RAND_bytes(ivOut, bytes))
             throw ("RAND_pseudo_bytes failed.");
     }
     catch(const char* err)

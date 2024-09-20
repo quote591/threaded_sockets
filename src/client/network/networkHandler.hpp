@@ -3,9 +3,12 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 
+#include "encryption.hpp"
+
 #include <string>
 #include <mutex>
 #include <atomic>
+#include <cstring>
 
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
 #define CLOSESOCKET(s) closesocket(s)
@@ -19,15 +22,53 @@ constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 // Forward decleration
 class MessageHandler;
 
-struct Packet
-{
-    Packet() = default;
-    Packet(unsigned char messageTypeIn, std::string messageIn) : 
-           msgType(messageTypeIn), message(messageIn) {}
 
+class Packet
+{
+private:
     unsigned char msgType;
-    std::string message;
+    std::unique_ptr<unsigned char[]> bytes;
+    size_t bytesSize;
+public:
+    Packet() = default;
+    Packet(unsigned char messageType, unsigned char* data, size_t dataSize) : msgType(messageType), bytesSize(dataSize)
+    {
+        bytes = std::make_unique<unsigned char[]>(dataSize);
+        std::memcpy(bytes.get(), data, dataSize);
+    }
+
+    unsigned char GetMsgType(void) const
+    {
+        return msgType;
+    }
+
+    size_t GetBytesSize(void) const
+    {
+        return bytesSize;
+    }
+
+    unsigned char* GetBytes(void) const
+    {
+        return bytes.get();
+    }
+
+    char* GetChars(void) const
+    {
+        return reinterpret_cast<char*>(bytes.get());
+    }
+
+    void SetMessageType(const unsigned char type)
+    {
+        msgType = type;
+    }
+
+    void SetBytes(unsigned char* data, size_t dataSize)
+    {
+        bytes = std::make_unique<unsigned char[]>(dataSize);
+        std::memcpy(bytes.get(), data, dataSize);
+    }
 };
+
 
 namespace MessageType{
 
@@ -50,7 +91,6 @@ namespace MessageType{
     };
 
     std::string GetMessageType(unsigned char msgbyte);
-
 }
 
 class NetworkHandler
@@ -62,9 +102,12 @@ private:
     static bool bConnectedFlag;
     static std::mutex connectedFlagMutex;
 
+    std::unique_ptr<Encryption> upEncryptionHandler;
+
 public:
     static std::atomic<int> m_knownConnectedUsers;
     
+    NetworkHandler();
 
     /// @brief Creates the socket and policies
     /// @param hostName ipAddress
@@ -89,7 +132,8 @@ public:
     /// @param msgType Type of messsage
     /// @param msg message to send
     /// @return bool - success
-    bool m_Send(unsigned char msgType, const std::string& msg);
+    bool m_Send(const unsigned char msgType, const std::string& msg);
+    bool m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize);
 
 
     /// @brief Wrapper for recv()

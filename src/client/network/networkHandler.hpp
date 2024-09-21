@@ -9,15 +9,24 @@
 #include <mutex>
 #include <atomic>
 #include <cstring>
+#include <memory>
 
 #define ISVALIDSOCKET(s) ((s) != INVALID_SOCKET)
 #define CLOSESOCKET(s) closesocket(s)
 #define GETSOCKETERRNO() (WSAGetLastError())
 
+// Packet offsets
+constexpr int SIGNATURE_OFFSET = 1;
+constexpr int IV_OFFSET = SIGNATURE_OFFSET + SHA256_AES_ENCRYPTED_BYTES;
+constexpr int PAYLOAD_OFFSET = IV_OFFSET + AESIV_SIZE_BYTES;
+constexpr unsigned int TYPEANDSIZEBYTES = 3;
+
+
 // 2^16 - 40. 
 // 40 is the minimum size of the tcp packet. (TODO check this, header size can change)
 // 2 is our overhead of the packet 2 bytes for size
 constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
+
 
 // Forward decleration
 class MessageHandler;
@@ -35,6 +44,11 @@ public:
     {
         bytes = std::make_unique<unsigned char[]>(dataSize);
         std::memcpy(bytes.get(), data, dataSize);
+    }
+    Packet(unsigned char messageType, const std::string& msg) : msgType(messageType), bytesSize(msg.size())
+    {
+        bytes = std::make_unique<unsigned char[]>(msg.size());
+        std::memcpy(bytes.get(), msg.c_str(), msg.size());
     }
 
     unsigned char GetMsgType(void) const
@@ -102,7 +116,7 @@ private:
     static bool bConnectedFlag;
     static std::mutex connectedFlagMutex;
 
-    std::unique_ptr<Encryption> upEncryptionHandler;
+    std::unique_ptr<Encryption> upEncryptionHandle;
 
 public:
     static std::atomic<int> m_knownConnectedUsers;
@@ -129,18 +143,22 @@ public:
 
 
     /// @brief Send a message to the connected socket
-    /// @param msgType Type of messsage
-    /// @param msg message to send
-    /// @return bool - success
-    bool m_Send(const unsigned char msgType, const std::string& msg);
-    bool m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize);
+    /// @param msgType Enum to indicate type of message
+    /// @param data Bytes to send to socket
+    /// @param dataSize Number of bytes to send to the socket
+    /// @param encrypted Wether the message is encryped or not
+    /// @param msg Message to send (std::string)
+    /// @return Bool - success
+    bool m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize, bool encrypted = true);
+    inline bool m_Send(const unsigned char msgType, const std::string& msg, bool encrypted = true);
 
 
     /// @brief Wrapper for recv()
     /// @param connection Connected user struct to recieve the data (can be nullptr)
     /// @param incomingPacketOut Struct passed by ref. Will set the data if method return true
+    /// @param encrypted Wether the incoming packet is expected to be encrypted or not
     /// @return bool - success
-    bool m_Recv(SOCKET connection, Packet& incomingPacketOut);
+    bool m_Recv(SOCKET connection, Packet& incomingPacketOut, bool encrypted = true);
 
 
     /// @brief Close the established connection
@@ -158,3 +176,9 @@ public:
     static bool s_GetConnectedFlag(void);
 
 };
+
+// Inline definitions
+inline bool NetworkHandler::m_Send(const unsigned char msgType, const std::string& msg, bool encrypted)
+{
+    return this->m_Send(msgType, reinterpret_cast<const unsigned char*>(msg.c_str()), msg.size(), encrypted);
+}

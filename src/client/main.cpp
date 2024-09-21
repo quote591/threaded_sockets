@@ -73,7 +73,8 @@ void HandleNetwork(void)
         if (p_messageHandler->m_GetSizeofSendQueue() > 0)
         {
             auto networkMessage = p_messageHandler->m_GetMessageFromSendQueue();
-            p_networkHandler->m_Send(networkMessage->msgType, networkMessage->message);
+            
+            p_networkHandler->m_Send(networkMessage->GetMsgType(), networkMessage->GetChars());
         }
 
         // Here we also deal with any network errors

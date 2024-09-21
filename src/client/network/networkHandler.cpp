@@ -6,7 +6,6 @@
 #include <sstream>
 #include <cassert>
 #include <cstring>
-#include <memory>
 
 // Static declares
 bool NetworkHandler::bConnectedFlag = false;
@@ -30,7 +29,7 @@ std::string MessageType::GetMessageType(unsigned char msgbyte)
 
 NetworkHandler::NetworkHandler()
 {
-    upEncryptionHandler = std::make_unique<Encryption>();
+    upEncryptionHandle = std::make_unique<Encryption>();
 }
 
 
@@ -105,18 +104,17 @@ bool NetworkHandler::m_Connect()
     
     // Setup encryption keys
     unsigned char publicKey[DH_PUBLICKEY_SIZE_BYTES];
-    upEncryptionHandler->GetDHPubKey(publicKey);
-    this->m_Send(MessageType::SECURECON, publicKey, DH_PUBLICKEY_SIZE_BYTES);
-    
+    upEncryptionHandle->GetDHPubKey(publicKey);
+    this->m_Send(MessageType::SECURECON, publicKey, DH_PUBLICKEY_SIZE_BYTES, false);
     // Recieve the peer public key
     Packet recievedPacket;
     do{
-        this->m_Recv(socket_peer, recievedPacket);
+        this->m_Recv(socket_peer, recievedPacket, false);
     } while (recievedPacket.GetMsgType() != MessageType::SECURECON);
  
     // Set our public peer key then derive secret key
-    upEncryptionHandler->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize());    
-    upEncryptionHandler->DeriveSecretKey();
+    upEncryptionHandle->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize());    
+    upEncryptionHandle->DeriveSecretKey();
 
     freeaddrinfo(peer_address);
     Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
@@ -143,127 +141,136 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
     fds[0].events = POLLRDNORM;  
 
     const int POLL_TIMEOUT_MS = 1;
-    int retCode = WSAPoll(fds, 1, POLL_TIMEOUT_MS);
-    if (retCode == SOCKET_ERROR)
-    {
-        std::stringstream recvSS; recvSS << "Error occured WSAPoll(): " << errno;
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_RecieveMessages()", recvSS.str());
-    }
 
-    else if (retCode != 0)
-    {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet available");
-
-        Packet networkPacket;
-        if (!m_Recv(socket_peer, networkPacket))
-        {
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error occured in m_Recv()");
-            NetworkHandler::s_SetConnectedFlag(false);
-            return false;
-        }
-
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.GetMsgType()), ") : ", networkPacket.GetBytes());
-        
-        // We now handle the message accordingly
-        switch (networkPacket.GetMsgType())
-        {
-            // Print out message
-            case MessageType::ALIASACK:
-            {
-                p_messageHandler->s_SetUserAlias(networkPacket.GetChars());
-                MessageHandler::m_aliasSet = true;
-                messageOut = "You've joined the chat room.";
-                return true;
-            }
-
-            case MessageType::ALIASSET:
-            case MessageType::ALIASDNY:
-            case MessageType::MESSAGE:
-            {
-                messageOut = std::string(networkPacket.GetChars());
-                return true;
-            }
-
-            case MessageType::CONNUSERS:
-            {
-                try{
-                    NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.GetChars());
-                }
-                catch (const std::invalid_argument& e)
-                {
-                    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: ", networkPacket.GetChars());
-                    return false;
-                }
-
-                Display::s_DrawInfoDisplayMux(p_messageHandler);
-                return false;
-            }
-            default:
-            {
-                Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.GetMsgType()), "(", (int)networkPacket.GetMsgType(), ")");
-                return false;
-            }
-        }
-        // false
-    }
-    return false;
-}
-
-
-bool NetworkHandler::m_Send(const unsigned char msgType, const std::string& msg)
-{
-    // 1 for the message type, size of the 2 bytes that say size is not included
-    std::uint16_t payloadSize = 1 + msg.size();
-    assert(payloadSize < MAXTCPPAYLOAD);
-
-    // Turn the integer into the two bytes to be written
-    std::uint8_t payloadSizeBytes[2] = {static_cast<std::uint8_t>(payloadSize >> 8), static_cast<std::uint8_t>(payloadSize & 0xFF)};
-
-    std::string message = std::string(reinterpret_cast<char*>(payloadSizeBytes), 2) + static_cast<char>(msgType) + msg;
-
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Send()", "Send: '", msg, "' (", msg.size(), " bytes)");
-    return send(socket_peer, message.c_str(), message.size(), 0);
-}
-
-
-bool NetworkHandler::m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize)
-{
     try
     {
-        // Setup encryption hashes, IVs and payload
-        unsigned char IV[AESIV_SIZE_BYTES];
-        if (!upEncryptionHandler->GenerateIV(IV))
-            throw ("Generate IV failed.");
+        int retCode = WSAPoll(fds, 1, POLL_TIMEOUT_MS);
+        if (retCode == SOCKET_ERROR)
+            throw ("Error occured WSAPoll().");
 
-        std::unique_ptr<unsigned char[]> encryptedPayload;
-        int encryptedPayloadSize = upEncryptionHandler->EncryptData(*data, dataSize, *IV, encryptedPayload);
-        if (encryptedPayloadSize == -1)
-            throw ("EncryptData failed.");
-        
-        // Create buffer for IV and enc payload to generate signature for
-        std::unique_ptr<unsigned char[]> packetIVPayload = std::make_unique<unsigned char[]>(AESIV_SIZE_BYTES + encryptedPayloadSize);
-        std::memcpy(packetIVPayload.get(), IV, 16);
-        std::memcpy(packetIVPayload.get() + 16, encryptedPayload.get(), encryptedPayloadSize);
+        else if (retCode != 0)
+        {
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet available");
 
-        unsigned char signature[SHA256_AES_ENCRYPTED_BYTES];
-        if(!upEncryptionHandler->CreatePacketSig(*packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize, *IV, signature))
-            throw ("Create packet signature failed.");
+            Packet networkPacket;
+            if (!m_Recv(socket_peer, networkPacket))
+            {
+                NetworkHandler::s_SetConnectedFlag(false);
+                throw ("Error occured in m_Recv()");
+            }
 
-        // 1 is the message type
-        std::uint16_t payloadSize = 1 + SHA256_AES_ENCRYPTED_BYTES + AESIV_SIZE_BYTES + encryptedPayloadSize;
-        // Turn the 16 bit integer into two bytes 0-65535
-        std::uint8_t payloadSizeBytes[2] = {static_cast<std::uint8_t>(payloadSize >> 8), static_cast<std::uint8_t>(payloadSize & 0xFF)};
-        
-        // +2 for size bytes
-        std::unique_ptr<unsigned char[]> dataToSend = std::make_unique<unsigned char[]>(payloadSize+2);
-        std::memcpy(dataToSend.get(), payloadSizeBytes, 2);                             // Size data
-        std::memcpy(dataToSend.get()+2, &msgType, 1);                                   // Message type data
-        std::memcpy(dataToSend.get()+3, signature, SHA256_AES_ENCRYPTED_BYTES);         // Encrypted Signature
-        std::memcpy(dataToSend.get()+3+SHA256_AES_ENCRYPTED_BYTES, 
-                    packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize);    // Encrypted Signature
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.GetMsgType()), ") : ", networkPacket.GetBytes());
+            
+            // We now handle the message accordingly
+            switch (networkPacket.GetMsgType())
+            {
+                // Print out message
+                case MessageType::ALIASACK:
+                {
+                    p_messageHandler->s_SetUserAlias(networkPacket.GetChars());
+                    MessageHandler::m_aliasSet = true;
+                    messageOut = "You've joined the chat room.";
+                    return true;
+                }
 
-        // +2 for the bytes for size aswell as the data and msgType byte
-        return send(socket_peer, reinterpret_cast<const char*>(dataToSend.get()), payloadSize+2, 0);
+                case MessageType::ALIASSET:
+                case MessageType::ALIASDNY:
+                case MessageType::MESSAGE:
+                {
+                    messageOut = std::string(networkPacket.GetChars());
+                    return true;
+                }
+
+                case MessageType::CONNUSERS:
+                {
+                    try{
+                        NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.GetChars());
+                    }
+                    catch (const std::invalid_argument& e)
+                    {
+                        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: ", networkPacket.GetChars());
+                        return false;
+                    }
+
+                    Display::s_DrawInfoDisplayMux(p_messageHandler);
+                    return false;
+                }
+                case MessageType::SECURECON:
+                default:
+                {
+                    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Invalid packet type: ", MessageType::GetMessageType(networkPacket.GetMsgType()), "(", (int)networkPacket.GetMsgType(), ")");
+                    return false;
+                }
+            }
+            // false
+        }
+        return false;
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: ", err);
+        return false;
+    }
+}
+
+
+bool NetworkHandler::m_Send(const unsigned char msgType, const unsigned char* data, const size_t dataSize, bool encrypted)
+{
+    constexpr int PAYLOADBUFFERSIZE = 2;
+    try
+    {
+        if (encrypted)
+        {
+            // Setup encryption hashes, IVs and payload
+            unsigned char IV[AESIV_SIZE_BYTES];
+            if (!upEncryptionHandle->s_GenerateIV(IV))
+                throw ("Generate IV failed.");
+
+            std::unique_ptr<unsigned char[]> encryptedPayload;
+            int encryptedPayloadSize = upEncryptionHandle->EncryptData(*data, dataSize, *IV, encryptedPayload);
+            if (encryptedPayloadSize == -1)
+                throw ("EncryptData failed.");
+            
+            // Create buffer for IV and enc payload to generate signature for
+            std::unique_ptr<unsigned char[]> packetIVPayload = std::make_unique<unsigned char[]>(AESIV_SIZE_BYTES + encryptedPayloadSize);
+            std::memcpy(packetIVPayload.get(), IV, 16);
+            std::memcpy(packetIVPayload.get() + 16, encryptedPayload.get(), encryptedPayloadSize);
+
+            unsigned char signature[SHA256_AES_ENCRYPTED_BYTES];
+            if(!upEncryptionHandle->CreatePacketSig(*packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize, *IV, signature))
+                throw ("Create packet signature failed.");
+
+            // 1 is the message type
+            std::uint16_t payloadSize = 1 + SHA256_AES_ENCRYPTED_BYTES + AESIV_SIZE_BYTES + encryptedPayloadSize;
+            // Turn the 16 bit integer into two bytes 0-65535
+            std::uint8_t payloadSizeBytes[PAYLOADBUFFERSIZE] = {static_cast<std::uint8_t>(payloadSize >> 8), 
+                                                                static_cast<std::uint8_t>(payloadSize & 0xFF)};
+            
+            // +2 for size bytes
+            std::unique_ptr<unsigned char[]> dataToSend = std::make_unique<unsigned char[]>(payloadSize+PAYLOADBUFFERSIZE);
+            std::memcpy(dataToSend.get(), payloadSizeBytes, PAYLOADBUFFERSIZE);                             // Size data
+            std::memcpy(dataToSend.get()+PAYLOADBUFFERSIZE, &msgType, 1);                                   // Message type data
+            std::memcpy(dataToSend.get()+TYPEANDSIZEBYTES, signature, SHA256_AES_ENCRYPTED_BYTES);          // Encrypted Signature
+            std::memcpy(dataToSend.get()+TYPEANDSIZEBYTES+SHA256_AES_ENCRYPTED_BYTES, 
+                        packetIVPayload.get(), AESIV_SIZE_BYTES + encryptedPayloadSize);    // Encrypted Signature
+
+            return send(socket_peer, reinterpret_cast<const char*>(dataToSend.get()), payloadSize+PAYLOADBUFFERSIZE, 0);
+        }
+        else
+        {
+            // 1 is the message type. Payload is the packet without the size bytes.
+            std::uint16_t payloadSize = 1 + dataSize;
+            // Turn the 16 bit integer into two bytes 0-65535
+            std::uint8_t payloadSizeBytes[PAYLOADBUFFERSIZE] = {static_cast<std::uint8_t>(payloadSize >> 8), 
+                                                                static_cast<std::uint8_t>(payloadSize & 0xFF)};
+            // Assemble packet
+            std::unique_ptr<unsigned char[]> dataToSend = std::make_unique<unsigned char[]>(dataSize+TYPEANDSIZEBYTES);
+            std::memcpy(dataToSend.get(), payloadSizeBytes, PAYLOADBUFFERSIZE);     // Size of the payload
+            std::memcpy(dataToSend.get()+PAYLOADBUFFERSIZE, &msgType, 1);           // Message type
+            std::memcpy(dataToSend.get()+TYPEANDSIZEBYTES, data, dataSize);         // Data
+
+            return send(socket_peer, reinterpret_cast<const char*>(dataToSend.get()), payloadSize+PAYLOADBUFFERSIZE, 0);
+        }
     }
     catch(const char* err)
     {
@@ -273,10 +280,10 @@ bool NetworkHandler::m_Send(const unsigned char msgType, const unsigned char* da
 }
 
 
-bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
+bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool encrypted)
 {
     std::uint8_t packetSizeBuffer[2];
-    std::uint8_t* packetBuffer = nullptr;
+    std::unique_ptr<std::uint8_t[]> packetBuffer;
 
     try
     {
@@ -298,9 +305,11 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet size recieved: ", packetSize);
         // Once we have the message length we can get the packet
-        packetBuffer = (std::uint8_t*)malloc(packetSize);
+        packetBuffer = std::make_unique<std::uint8_t[]>(packetSize);
 
-        int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer), packetSize, 0);
+        int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer.get()), packetSize, 0);
+
+        // Check for errors
         if (recvPacketSize == -1)
         {
             int error = GETSOCKETERRNO();
@@ -310,17 +319,40 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut)
         else if (recvLengthSize == 0)
             throw ("recv packet 0: connection dropped.");
 
+        if (encrypted)
+        {
+            // Get IV offset
+            unsigned char* SIG = packetBuffer.get() + SIGNATURE_OFFSET;
+            unsigned char* IV = packetBuffer.get() + IV_OFFSET;
+            unsigned char* payload = packetBuffer.get() + PAYLOAD_OFFSET;
+
+            // We first have to verify the packet (IV+payload)
+            if(!upEncryptionHandle->VerifyPacket(*SIG, *IV, *IV, packetSize-IV_OFFSET))
+                throw ("Packet verification failed.");
+            
+            std::unique_ptr<unsigned char[]> decryptedPacketPayload;
+
+            // Then we decrypt the payload and set the packet struct with its data
+            int decryptedPayloadBytes;
+            if (-1 == (decryptedPayloadBytes = upEncryptionHandle->DecryptData(*payload, packetSize-PAYLOAD_OFFSET, *IV, decryptedPacketPayload)))
+                throw ("Data decryption failed.");
+            
+            incomingPacketOut.SetBytes(decryptedPacketPayload.get(), decryptedPayloadBytes);
+        }
+        else
+        {
+            // Get all the data except the message type
+            incomingPacketOut.SetBytes(packetBuffer.get()+1, packetSize-1);
+        }
+
+        // Same either encrypted or not
         incomingPacketOut.SetMessageType(packetBuffer[0]);
-        incomingPacketOut.SetBytes(packetBuffer+1, recvPacketSize-1);
     }
     catch (const char* err)
     {
-        if (packetBuffer != nullptr)
-            free(packetBuffer);
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Error: ", err);
+        return false;
     }
-
-    free(packetBuffer);
     return true;
 }
 

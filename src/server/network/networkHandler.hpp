@@ -1,3 +1,5 @@
+#include "encryption.hpp"
+
 // Networking headers
 #ifdef _WIN32
 #include <WinSock2.h>
@@ -22,14 +24,12 @@
 // 2 is our overhead of the packet 2 bytes for size
 constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
-// Chat related
-#define MAXALIASSIZE 10
+// Packet offsets
+constexpr int SIGNATURE_OFFSET = 1;
+constexpr int IV_OFFSET = SIGNATURE_OFFSET + SHA256_AES_ENCRYPTED_BYTES;
+constexpr int PAYLOAD_OFFSET = IV_OFFSET + AESIV_SIZE_BYTES;
+constexpr unsigned int TYPEANDSIZEBYTES = 3;
 
-struct Packet
-{
-    unsigned char msgType;
-    std::string message;
-};
 
 namespace MessageType{
 
@@ -46,10 +46,64 @@ namespace MessageType{
         // Server info
         CONNUSERS,  // Server -> Client Number of connected users
 
+        // Secure connection
+        SECURECON, // Client -> Server Sends their DH pub Key, Server -> Client responds with their own DH pub Key 
     };
 
     std::string GetMessageType(unsigned char msgByte);
 }
+
+
+class Packet
+{
+private:
+    unsigned char msgType;
+    std::unique_ptr<unsigned char[]> bytes;
+    size_t bytesSize;
+public:
+    Packet() = default;
+    Packet(unsigned char messageType, unsigned char* data, size_t dataSize) : msgType(messageType), bytesSize(dataSize)
+    {
+        bytes = std::make_unique<unsigned char[]>(dataSize);
+        std::memcpy(bytes.get(), data, dataSize);
+    }
+    Packet(unsigned char messageType, const std::string& msg) : msgType(messageType), bytesSize(msg.size())
+    {
+        bytes = std::make_unique<unsigned char[]>(msg.size());
+        std::memcpy(bytes.get(), msg.c_str(), msg.size());
+    }
+
+    unsigned char GetMsgType(void) const
+    {
+        return msgType;
+    }
+
+    size_t GetBytesSize(void) const
+    {
+        return bytesSize;
+    }
+
+    unsigned char* GetBytes(void) const
+    {
+        return bytes.get();
+    }
+
+    char* GetChars(void) const
+    {
+        return reinterpret_cast<char*>(bytes.get());
+    }
+
+    void SetMessageType(const unsigned char type)
+    {
+        msgType = type;
+    }
+
+    void SetBytes(unsigned char* data, size_t dataSize)
+    {
+        bytes = std::make_unique<unsigned char[]>(dataSize);
+        std::memcpy(bytes.get(), data, dataSize);
+    }
+};
 
 
 class NetworkedUser
@@ -57,14 +111,48 @@ class NetworkedUser
 private:
     SOCKET m_userSocket;
     std::string m_alias;
-    time_t connectionTime;
-    char address[NI_MAXHOST];
+    time_t m_connectionTime;
+    char m_address[NI_MAXHOST];
+    std::unique_ptr<Encryption> m_userEncryption;
 
 public:
+    NetworkedUser() = default;
+
     NetworkedUser(SOCKET sock_in, std::string name_in, time_t time_in, const char addr_in[NI_MAXHOST]) : 
-        m_userSocket(sock_in), m_alias(name_in), connectionTime(time_in)
+        m_userSocket(sock_in), m_alias(name_in), m_connectionTime(time_in)
     {
-        std::strcpy(address, addr_in);
+        std::strcpy(m_address, addr_in);
+    }
+
+    // Builders
+    NetworkedUser* m_SetSocket(const SOCKET sock)
+    {
+        m_userSocket = sock;
+        return this;
+    }
+
+    NetworkedUser* m_SetAlias(const std::string& alias)
+    {
+        m_alias = alias;
+        return this;
+    }
+
+    NetworkedUser* m_SetConnectionTime(const time_t& connectionTime)
+    {
+        m_connectionTime = connectionTime;
+        return this;
+    }
+
+    NetworkedUser* m_SetAddress(const char address[NI_MAXHOST])
+    {
+        std::strcpy(m_address, address);
+        return this;
+    }
+
+    NetworkedUser* m_SetEncryptionObject(std::unique_ptr<Encryption>& encryptionObj)
+    {
+        m_userEncryption = std::move(encryptionObj);
+        return this;
     }
 
     SOCKET m_GetUserSocket(void) const 
@@ -79,10 +167,15 @@ public:
 
     const char* m_GetUserAddress(void) const 
     {
-        return address;
+        return m_address;
     }
 
+    Encryption* m_GetEncryptionHandle(void) const
+    {
+        return m_userEncryption.get();
+    }
 };
+
 
 // Shared pointer of NetworkedUser
 using spNetworkedUser = std::shared_ptr<NetworkedUser>;
@@ -171,19 +264,23 @@ public:
 
     /// @brief Send message to certain connected user. The only method that will call Ws2 send()
     /// @param messageType Type of messsage
-    /// @param recipient is who to send the message to
-    /// @param message is the message
-    /// @return bool - success
-    bool m_Send(unsigned char messageType, SOCKET recipient, const std::string& message);
+    /// @param recipient Socket to send the message to
+    /// @param data Bytes to send
+    /// @param dataSize Number of bytes to send
+    /// @param message Message to send as std::string
+    /// @return Bool - success
+    bool m_Send(SOCKET recipient, Encryption* upEncryptionHandle, const unsigned char messageType, const unsigned char* data, const size_t dataSize, bool encrypted = true);
+    inline bool m_Send(SOCKET recipient, Encryption* upEncryptionHandle, unsigned char messageType, const std::string& message, bool encrypted = true);
 
 
     /// @brief Wrapper for recv()
     /// @param sender Connected user struct to recieve the data (can be nullptr)
     /// @param senderSock Non-connected user to recieve the data like in accept (can be nullptr)
+    /// @param upEncryptionHandle 
     /// @param incomingPacketOut Struct passed by ref. Will set the data if method return true
     /// @param blocking Flag for if the sockets are set as blocking
     /// @return bool - success
-    bool m_Recv(spNetworkedUser sender, SOCKET* senderSock, Packet& incomingPacketOut, bool blocking);
+    bool m_Recv(spNetworkedUser sender, SOCKET* senderSock, Encryption* upEncryptionHandle, Packet& incomingPacketOut, bool blocking, bool encrypted = true);
 
 
     /// @brief Disconnect a connected user
@@ -196,3 +293,8 @@ public:
     /// @return bool - success
     bool m_Shutdown(void);
 };
+
+inline bool NetworkHandler::m_Send(SOCKET recipient, Encryption* upEncryptionHandle, unsigned char messageType, const std::string& message, bool encrypted)
+{
+    return this->m_Send(recipient, upEncryptionHandle, messageType, reinterpret_cast<const unsigned char*>(message.c_str()), message.size(), encrypted);
+}

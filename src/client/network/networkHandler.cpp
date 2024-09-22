@@ -83,54 +83,60 @@ bool NetworkHandler::m_Create(std::string hostName, std::string port)
         return false;
     }
 
-
     return true;
 }
 
 
 bool NetworkHandler::m_Connect()
 {
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Attempting to connect...");
+    try
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Attempting to connect...");
 
-    // Connect
-    
-    if (connect(socket_peer,
-        peer_address->ai_addr, peer_address->ai_addrlen)) {
+        if (connect(socket_peer, peer_address->ai_addr, peer_address->ai_addrlen)) {
+            std::stringstream connectSS; connectSS << "connect() failed errno:(" << GETSOCKETERRNO() << ")";
+            throw (connectSS.str());
+        }
         
-        std::stringstream connectSS; connectSS << "connect() failed errno:(" << GETSOCKETERRNO() << ")";
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", connectSS.str());
+        // Setup encryption keys
+        unsigned char publicKey[DH_PUBLICKEY_SIZE_BYTES];
+        if (!upEncryptionHandle->GetDHPubKey(publicKey))
+            throw ("GetDHPubKey failed.");
+
+        if (!this->m_Send(MessageType::SECURECON, publicKey, DH_PUBLICKEY_SIZE_BYTES, false))
+            throw ("m_Send failed.");
+
+        // Recieve the peer public key
+        Packet recievedPacket;
+        do{
+            if (!this->m_Recv(socket_peer, recievedPacket, false))
+                throw ("m_Recv failed.");
+        
+        } while (recievedPacket.GetMsgType() != MessageType::SECURECON);
+    
+        // Set our public peer key then derive secret key
+        if (!upEncryptionHandle->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize()))
+            throw ("SetDHPublicPeer failed.");
+        if (!upEncryptionHandle->DeriveSecretKey())
+            throw ("DeriveSecretKey failed.");
+
+        freeaddrinfo(peer_address);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
+        NetworkHandler::s_SetConnectedFlag(true);
+
+        // Set socket into non-blocking mode
+        // We enable it after the connect call as we do not want 
+        u_long iMode = 1;
+        if (ioctlsocket(socket_peer, FIONBIO, &iMode) != NO_ERROR)
+            throw ("Error setting socket as non-blocking");
+
+        return true;
+    }
+    catch(const char* err)
+    {
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect", "Error: ", err);
         return false;
     }
-    
-    // Setup encryption keys
-    unsigned char publicKey[DH_PUBLICKEY_SIZE_BYTES];
-    upEncryptionHandle->GetDHPubKey(publicKey);
-    this->m_Send(MessageType::SECURECON, publicKey, DH_PUBLICKEY_SIZE_BYTES, false);
-    // Recieve the peer public key
-    Packet recievedPacket;
-    do{
-        this->m_Recv(socket_peer, recievedPacket, false);
-    } while (recievedPacket.GetMsgType() != MessageType::SECURECON);
- 
-    // Set our public peer key then derive secret key
-    upEncryptionHandle->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize());    
-    upEncryptionHandle->DeriveSecretKey();
-
-    freeaddrinfo(peer_address);
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Connected.");
-    NetworkHandler::s_SetConnectedFlag(true);
-
-    // Set socket into non-blocking mode
-    // We enable it after the connect call as we do not want 
-    u_long iMode = 1;
-    std::string ioctlsocketMsg;
-    if (ioctlsocket(socket_peer, FIONBIO, &iMode) != NO_ERROR)
-        ioctlsocketMsg = "Error setting socket as non-blocking";
-    else
-        ioctlsocketMsg = "Set socket into non-blocking mode";
-    Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", ioctlsocketMsg);
-
-    return true;
 }
 
 
@@ -140,7 +146,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
     fds[0].fd = socket_peer;
     fds[0].events = POLLRDNORM;  
 
-    const int POLL_TIMEOUT_MS = 1;
+    constexpr int POLL_TIMEOUT_MS = 1;
 
     try
     {
@@ -172,7 +178,6 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
                     messageOut = "You've joined the chat room.";
                     return true;
                 }
-
                 case MessageType::ALIASSET:
                 case MessageType::ALIASDNY:
                 case MessageType::MESSAGE:
@@ -180,7 +185,6 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
                     messageOut = networkPacket.GetString();
                     return true;
                 }
-
                 case MessageType::CONNUSERS:
                 {
                     try{
@@ -209,7 +213,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
     }
     catch(const char* err)
     {
-        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: ", err);
+        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage", "Error: ", err);
         return false;
     }
 }
@@ -290,13 +294,10 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool e
     {
         // Get packet size
         int recvLengthSize = recv(connection, reinterpret_cast<char*>(packetSizeBuffer), sizeof(packetSizeBuffer), 0);
-
         if (recvLengthSize == -1)
         {
-            int error = GETSOCKETERRNO();
-            if (error == WSAECONNRESET)
+            if (GETSOCKETERRNO() == WSAECONNRESET)
                 throw ("Socket was forcefully reset by connected peer.");
-
         }
         else if (recvLengthSize == 0)
             throw ("recv length 0: connection dropped.");
@@ -305,16 +306,15 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool e
         packetSize = (static_cast<std::uint16_t>(packetSizeBuffer[0]) << 8) + static_cast<std::uint16_t>(packetSizeBuffer[1]);
         
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet size recieved: ", packetSize);
+        
         // Once we have the message length we can get the packet
         packetBuffer = std::make_unique<std::uint8_t[]>(packetSize);
-
         int recvPacketSize = recv(connection, reinterpret_cast<char*>(packetBuffer.get()), packetSize, 0);
 
         // Check for errors
         if (recvPacketSize == -1)
         {
-            int error = GETSOCKETERRNO();
-            if (error == WSAECONNRESET)
+            if (GETSOCKETERRNO() == WSAECONNRESET)
                 throw ("Socket was forcefully reset by connected peer.");
         }
         else if (recvLengthSize == 0)

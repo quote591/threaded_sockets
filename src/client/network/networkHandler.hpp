@@ -27,10 +27,8 @@ constexpr unsigned int TYPEANDSIZEBYTES = 3;
 // 2 is our overhead of the packet 2 bytes for size
 constexpr unsigned int MAXTCPPAYLOAD = 65535-40-2;
 
-
 // Forward decleration
 class MessageHandler;
-
 
 class Packet
 {
@@ -102,7 +100,6 @@ namespace MessageType{
 
         // Secure connection
         SECURECON, // Client -> Server Sends their DH pub Key, Server -> Client responds with their own DH pub Key 
-
     };
 
     std::string GetMessageType(unsigned char msgbyte);
@@ -127,19 +124,19 @@ public:
     /// @brief Creates the socket and policies
     /// @param hostName ipAddress
     /// @param port port number string
-    /// @return bool - success
+    /// @return Bool - success
     bool m_Create(std::string hostName, std::string port);
 
 
     /// @brief Establishes the network connection
-    /// @return bool - success
+    /// @return Bool - success
     bool m_Connect(void);
 
 
     /// @brief Check for a message from a user, if there is one we can recieve it
     /// @param messageOut is the returned message, will only be set if method return true
     /// @param p_messageHandler pointer to message handler
-    /// @return bool - if there was a message to print
+    /// @return Bool - if there was a message to print
     bool m_ReceiveMessage(std::string& messageOut, MessageHandler* p_messageHandler);
 
 
@@ -158,7 +155,7 @@ public:
     /// @param connection Connected user struct to recieve the data (can be nullptr)
     /// @param incomingPacketOut Struct passed by ref. Will set the data if method return true
     /// @param encrypted Wether the incoming packet is expected to be encrypted or not
-    /// @return bool - success
+    /// @return Bool - success
     bool m_Recv(SOCKET connection, Packet& incomingPacketOut, bool encrypted = true);
 
 

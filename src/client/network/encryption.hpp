@@ -38,7 +38,6 @@ private:
     // Public and private client key
     EVP_PKEY* dhKey = nullptr;
 
-
     /// @brief Creates the public-private key pair for the Diffie Hellman key exchange
     /// @return Bool - success
     bool CreateDHKeys(void);

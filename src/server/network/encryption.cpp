@@ -10,7 +10,6 @@
 
 int Encryption::EncryptData(const unsigned char& plainText, const size_t plainTextLen, const unsigned char& iv, std::unique_ptr<unsigned char[]>& cipherTextOut)
 {
-
     // Number of bytes the output AES will be
     int outputBytes = (std::floor(plainTextLen/16.0)+1)*16;
     // Smart pointer allocation

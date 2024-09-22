@@ -29,7 +29,7 @@ int Encryption::EncryptData(const unsigned char& plainText, const size_t plainTe
 		// Use default engine
 		if (1 != EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, &iv))
 			throw ("EncryptInit_ex failed.");
-
+            
 		if (1 != EVP_EncryptUpdate(ctx, upCipherText.get(), &ctLen, &plainText, plainTextLen))
 			throw ("EncryptUpdate failed.");
 		cipherTextLength = ctLen;
@@ -72,6 +72,9 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
 		if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, &iv))
 			throw ("DecryptInit_ex failed.");
 
+        if (1 != EVP_CIPHER_CTX_set_padding(ctx, 0))
+            throw ("Disable padding failed.");
+
 		if (1 != EVP_DecryptUpdate(ctx, upDecryptedText.get(), &ciLen, &cipherData, cipherDataLen))
 			throw ("DecryptUpdate failed.");
 		plainTextLength = ciLen;
@@ -89,10 +92,15 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
         EVP_CIPHER_CTX_free(ctx);
 		return -1;
 	}
+
+    // pkcs#7 padding used.
+    int paddingNumber = static_cast<int>(upDecryptedText.get()[plainTextLength-1]);
+
     dataOut = std::move(upDecryptedText);
 	// Free context
 	EVP_CIPHER_CTX_free(ctx);
-	return plainTextLength;
+
+	return plainTextLength-paddingNumber;
 }
 
 bool Encryption::CreateDHKeys(void)
@@ -241,7 +249,6 @@ bool Encryption::DeriveSecretKey(void)
 bool Encryption::CreatePacketSig(const unsigned char& packetPayload, const size_t packetPayloadLen, const unsigned char& IV, unsigned char* encSignatureOut)
 {
     // 48 bytes for signature
-
     std::unique_ptr<unsigned char[]> encryptedHash;
     try
     {

@@ -158,8 +158,8 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
                 NetworkHandler::s_SetConnectedFlag(false);
                 throw ("Error occured in m_Recv()");
             }
-
-            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Packet type (", MessageType::GetMessageType(networkPacket.GetMsgType()), ") : ", networkPacket.GetBytes());
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", 
+                                             "Packet type (", MessageType::GetMessageType(networkPacket.GetMsgType()), ") : ", networkPacket.GetString());
             
             // We now handle the message accordingly
             switch (networkPacket.GetMsgType())
@@ -167,7 +167,7 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
                 // Print out message
                 case MessageType::ALIASACK:
                 {
-                    p_messageHandler->s_SetUserAlias(networkPacket.GetChars());
+                    p_messageHandler->s_SetUserAlias(networkPacket.GetString());
                     MessageHandler::m_aliasSet = true;
                     messageOut = "You've joined the chat room.";
                     return true;
@@ -177,18 +177,19 @@ bool NetworkHandler::m_ReceiveMessage(std::string& messageOut, MessageHandler* p
                 case MessageType::ALIASDNY:
                 case MessageType::MESSAGE:
                 {
-                    messageOut = std::string(networkPacket.GetChars());
+                    messageOut = networkPacket.GetString();
                     return true;
                 }
 
                 case MessageType::CONNUSERS:
                 {
                     try{
-                        NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.GetChars());
+                        NetworkHandler::m_knownConnectedUsers = std::stoi(networkPacket.GetString());
                     }
                     catch (const std::invalid_argument& e)
                     {
-                        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", "Error: Invalid number of connected users: ", networkPacket.GetChars());
+                        Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_ReceiveMessage()", 
+                                                         "Error: Invalid number of connected users: ", networkPacket.GetString());
                         return false;
                     }
 
@@ -329,6 +330,7 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool e
             // We first have to verify the packet (IV+payload)
             if(!upEncryptionHandle->VerifyPacket(*SIG, *IV, *IV, packetSize-IV_OFFSET))
                 throw ("Packet verification failed.");
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Packet verified.");
             
             std::unique_ptr<unsigned char[]> decryptedPacketPayload;
 
@@ -336,7 +338,8 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool e
             int decryptedPayloadBytes;
             if (-1 == (decryptedPayloadBytes = upEncryptionHandle->DecryptData(*payload, packetSize-PAYLOAD_OFFSET, *IV, decryptedPacketPayload)))
                 throw ("Data decryption failed.");
-            
+
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Successful decryption.");
             incomingPacketOut.SetBytes(decryptedPacketPayload.get(), decryptedPayloadBytes);
         }
         else
@@ -347,13 +350,13 @@ bool NetworkHandler::m_Recv(SOCKET connection, Packet &incomingPacketOut, bool e
 
         // Same either encrypted or not
         incomingPacketOut.SetMessageType(packetBuffer[0]);
+        return true;
     }
     catch (const char* err)
     {
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Error: ", err);
         return false;
     }
-    return true;
 }
 
 

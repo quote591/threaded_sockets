@@ -88,9 +88,9 @@ public:
         return bytes.get();
     }
 
-    char* GetChars(void) const
+    std::string GetString(void) const
     {
-        return reinterpret_cast<char*>(bytes.get());
+        return std::string(reinterpret_cast<char*>(bytes.get()), bytesSize);
     }
 
     void SetMessageType(const unsigned char type)
@@ -101,6 +101,7 @@ public:
     void SetBytes(unsigned char* data, size_t dataSize)
     {
         bytes = std::make_unique<unsigned char[]>(dataSize);
+        bytesSize = dataSize;
         std::memcpy(bytes.get(), data, dataSize);
     }
 };

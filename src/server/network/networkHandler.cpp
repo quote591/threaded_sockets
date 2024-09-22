@@ -46,6 +46,10 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
         this->m_Recv(nullptr, &userSocket, nullptr, recievedPacket, true, false);
     } while (recievedPacket.GetMsgType() != MessageType::SECURECON);
 
+    // Set our public peer key then derive secret key
+    upEncryption->SetDHPublicPeer(*recievedPacket.GetBytes(), recievedPacket.GetBytesSize());    
+    upEncryption->DeriveSecretKey();
+
     this->m_Send(userSocket, upEncryption.get(), MessageType::ALIASSET, "Welcome, please submit a username");
 
     std::shared_ptr<NetworkedUser> userStruct;
@@ -66,14 +70,14 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
                 throw("Username not acceptable - needs to be 3 to 8 chars long.");
             }
 
-            for (char& c : std::string(asyncAliasPacket.GetChars()))
+            for (char& c : asyncAliasPacket.GetString())
             {
                 if (!std::isprint(c) || c == ' ')
                     throw("Username has to contain printable characters.");
             }
 
             userStruct = std::make_shared<NetworkedUser>(
-                userSocket, asyncAliasPacket.GetChars(), time(NULL), address
+                userSocket, asyncAliasPacket.GetString(), time(NULL), address
             );
 
             // Attempt to add the username, check for uniqueness
@@ -92,7 +96,9 @@ void NetworkHandler::m_AsyncNewConnectionHandle(SOCKET userSocket, const char ad
     SetSocketBlocking(false, userSocket);
 
     // Alias is accpeted, send an acknowledgement to the user and broadcast to all users
-    this->m_Send(userSocket, upEncryption.get(), MessageType::ALIASACK, asyncAliasPacket.GetChars());
+    this->m_Send(userSocket, upEncryption.get(), MessageType::ALIASACK, asyncAliasPacket.GetString());
+
+    userStruct->m_SetEncryptionObject(upEncryption);
 
     std::stringstream ssConnectionMsg;
     ssConnectionMsg << userStruct->m_GetUserAlias() << " connected.";
@@ -343,7 +349,7 @@ bool NetworkHandler::m_ReceiveMessage(spNetworkedUser connectedUser, std::string
             // Regular message
             case MessageType::MESSAGE:
             {
-                messageOut = recievedPacket.GetChars();
+                messageOut = recievedPacket.GetString();
                 return true;
             }
 
@@ -504,7 +510,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, En
             }
         }
         else if (recvLengthSize == -1 && blocking)
-            throw ("Length recv errno (", GETSOCKETERRNO(), ")");
+            throw ("Recv length returned -1. Blocking socket.");
         
         // No packet, connection dropped
         else if (recvLengthSize == 0)
@@ -530,7 +536,7 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, En
         }
         else if (recvPacketSize == -1 && blocking)
         {
-            throw ("Error recieved (", GETSOCKETERRNO(), ")");
+            throw ("Recv returned -1. Blocking socket.");
         }
         else if (recvLengthSize == 0)
         {

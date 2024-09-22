@@ -10,6 +10,7 @@ constexpr unsigned int DH_PUBLICKEY_SIZE_BYTES = 256;
 constexpr unsigned int SHA256_BYTES = 32;
 constexpr unsigned int SHA256_AES_ENCRYPTED_BYTES = 48;
 
+
 class Encryption
 {
 private:

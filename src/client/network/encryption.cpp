@@ -59,6 +59,7 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
 {
     // Unencrypted data will always be less than the cipher length
     std::unique_ptr<unsigned char[]> upDecryptedText = std::make_unique<unsigned char[]>(cipherDataLen);
+    std::memset(upDecryptedText.get(), 0, cipherDataLen);
 
 	EVP_CIPHER_CTX* ctx;
 	int plainTextLength, ciLen;
@@ -71,6 +72,9 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
 		// ex - extended. Use default engine
 		if (1 != EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, &iv))
 			throw ("DecryptInit_ex failed.");
+
+        if (1 != EVP_CIPHER_CTX_set_padding(ctx, 0))
+            throw ("Disable padding failed.");
 
 		if (1 != EVP_DecryptUpdate(ctx, upDecryptedText.get(), &ciLen, &cipherData, cipherDataLen))
 			throw ("DecryptUpdate failed.");
@@ -89,11 +93,18 @@ int Encryption::DecryptData(const unsigned char& cipherData, const size_t cipher
         EVP_CIPHER_CTX_free(ctx);
 		return -1;
 	}
+
+    // pkcs#7 padding used.
+    int paddingNumber = static_cast<int>(upDecryptedText.get()[plainTextLength-1]);
+    
     dataOut = std::move(upDecryptedText);
 	// Free context
 	EVP_CIPHER_CTX_free(ctx);
-	return plainTextLength;
+
+    // remove padding
+	return plainTextLength-paddingNumber;
 }
+
 
 bool Encryption::CreateDHKeys(void)
 {
@@ -269,12 +280,12 @@ bool Encryption::VerifyPacket(const unsigned char &packetHash, const unsigned ch
     try
     {
         int hashSize = this->DecryptData(packetHash, SHA256_AES_ENCRYPTED_BYTES, IV, decryptedHash);
-
-        // Check its a sha256
-        assert(hashSize == SHA256_BYTES);
+        if (hashSize == -1)
+            throw ("DecryptData failed.");
 
         unsigned char calculatedHash[SHA256_BYTES];
         // Take our own hash
+        Log::s_GetInstance()->m_LogWrite("VerifyPacket", "packetPayloadLen: ", packetPayloadLen);
         if (!this->CalculateSHA256(packetPayload, packetPayloadLen, calculatedHash))
             throw ("CalculateSHA256 failed.");
         

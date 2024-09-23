@@ -9,7 +9,7 @@
 #include <conio.h> // _kbhit(), _getch()
 
 
-NetworkHandler* p_networkHandler;
+std::unique_ptr<NetworkHandler> p_networkHandler;
 
 std::atomic<bool> returnThreads{false};
 
@@ -23,7 +23,7 @@ constexpr int msThreadDelay = 1000/threadUpdateFrequency;
 // 1000/60 ms wait per cycle. 
 void HandleNetwork(void)
 {
-    p_networkHandler = new NetworkHandler();
+    p_networkHandler = std::make_unique<NetworkHandler>();
     p_networkHandler->m_Create(port);
     p_networkHandler->m_Listen(10);
 
@@ -92,9 +92,6 @@ int main()
     networkThread.join();
     Log::s_GetInstance()->m_LogWrite("Main thread", "Network thread shutdown.");
 
-    // Free networkHandler
-    delete(p_networkHandler);
-    
     Log::s_GetInstance()->m_LogWrite("Main thread", "exit 0");   
     return 0;
 }

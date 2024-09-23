@@ -14,7 +14,11 @@ private:
     Log();
     ~Log();
 
-    static Log* pInstance;
+    static std::unique_ptr<Log> pInstance;
+
+    // Declare make unique as a friend so that it can access private constructor and destructor
+    friend std::unique_ptr<Log> std::make_unique<Log>();
+    friend struct std::default_delete<Log>;
 
     std::mutex writeMutex;
     static std::mutex instanceMutex;

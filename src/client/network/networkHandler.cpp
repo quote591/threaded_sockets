@@ -94,8 +94,8 @@ bool NetworkHandler::m_Connect()
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect()", "Attempting to connect...");
 
         if (connect(socket_peer, peer_address->ai_addr, peer_address->ai_addrlen)) {
-            std::stringstream connectSS; connectSS << "connect() failed errno:(" << GETSOCKETERRNO() << ")";
-            throw (connectSS.str());
+            Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Connect", "Connect errno: ", GETSOCKETERRNO());
+            throw ("Connect failed.");
         }
         
         // Setup encryption keys

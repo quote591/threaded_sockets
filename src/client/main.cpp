@@ -6,8 +6,8 @@
 #include <thread>
 #include <memory>
 
-MessageHandler* p_messageHandler;
-NetworkHandler* p_networkHandler;
+std::unique_ptr<MessageHandler> p_messageHandler;
+std::unique_ptr<NetworkHandler> p_networkHandler;
 
 std::atomic<bool> returnThreads{false};
 
@@ -22,7 +22,7 @@ constexpr int msThreadDelay = 1000/THREADUPDATERATE;
 // 1000/60 ms wait per cycle. 
 void HandleNetwork(void)
 {
-    p_networkHandler = new NetworkHandler();
+    p_networkHandler = std::make_unique<NetworkHandler>();
 
     p_networkHandler->m_Create(hostname, port);
     
@@ -31,7 +31,7 @@ void HandleNetwork(void)
     {
         if(p_networkHandler->m_Connect())
         {
-            Display::s_DrawInfoDisplayMux(p_messageHandler);
+            Display::s_DrawInfoDisplayMux(p_messageHandler.get());
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -49,11 +49,11 @@ void HandleNetwork(void)
 
         // Recv message and add to the message display
         std::string recvMsg;
-        if (p_networkHandler->m_ReceiveMessage(recvMsg, p_messageHandler))
+        if (p_networkHandler->m_ReceiveMessage(recvMsg, p_messageHandler.get()))
         {
             p_messageHandler->m_PushMessageToDisplay(recvMsg);
-            Display::s_DrawMessageDisplay(p_messageHandler);
-            Display::s_DrawInfoDisplayMux(p_messageHandler);
+            Display::s_DrawMessageDisplay(p_messageHandler.get());
+            Display::s_DrawInfoDisplayMux(p_messageHandler.get());
         }
         // We check if there is a disconnect
         else
@@ -62,7 +62,7 @@ void HandleNetwork(void)
             if (NetworkHandler::s_GetConnectedFlag() == false)
             {
                 // Update the info 
-                Display::s_DrawInfoDisplayMux(p_messageHandler);
+                Display::s_DrawInfoDisplayMux(p_messageHandler.get());
                 return; // Exit out
             }
 
@@ -83,7 +83,7 @@ void HandleNetwork(void)
         if (returnThreads)
         {
             p_networkHandler->m_Close();
-            Display::s_DrawInfoDisplayMux(p_messageHandler);
+            Display::s_DrawInfoDisplayMux(p_messageHandler.get());
             return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(msThreadDelay));
@@ -94,7 +94,7 @@ void HandleNetwork(void)
 void DrawThreadMethod(void)
 {
     Display::s_ClearTerminal();
-    Display::s_Draw(p_messageHandler);
+    Display::s_Draw(p_messageHandler.get());
     short oldColumn, oldRow;
     Display::s_GetConsoleMaxCoords(oldColumn, oldRow);
     while (true)
@@ -106,7 +106,7 @@ void DrawThreadMethod(void)
         {
             Log::s_GetInstance()->m_LogWrite("Display::s_Draw()", "Terminal resolution changed, redrawing. ", column, "x", row);
             Display::s_ClearTerminal();
-            Display::s_Draw(p_messageHandler);
+            Display::s_Draw(p_messageHandler.get());
             oldColumn = column; oldRow = row;
         }
             
@@ -119,9 +119,9 @@ void DrawThreadMethod(void)
 int main()
 {
     // Thread to handle the user input at all times
-    p_messageHandler = new MessageHandler();
+    p_messageHandler = std::make_unique<MessageHandler>();
     // Lifetime of all threads is managed by the main thread
-    std::thread messageThread(MessageHandler::m_HandleInput, p_messageHandler);
+    std::thread messageThread(MessageHandler::m_HandleInput, p_messageHandler.get());
 
     Display::s_SetTerminalModeRaw();
 
@@ -140,10 +140,6 @@ int main()
     drawThread.join();
     networkThread.join();
 
-    // Free messageHandler and networkHandler
-    delete(p_messageHandler);
-    delete(p_networkHandler);
-    
     // Reset the terminal mode before we exit
     Display::s_SetTerminalModeReset();
     return 0;

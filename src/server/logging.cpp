@@ -2,7 +2,7 @@
 #include <ctime>
 
 // Static
-Log* Log::pInstance = nullptr;
+std::unique_ptr<Log> Log::pInstance;
 std::mutex Log::instanceMutex;
 
 Log::Log()
@@ -28,7 +28,7 @@ Log *Log::s_GetInstance(void)
     std::lock_guard<std::mutex> lock(instanceMutex);
     if (pInstance == nullptr)
     {
-        pInstance = new Log();
+        pInstance = std::make_unique<Log>();
     }
-    return pInstance;
+    return pInstance.get();
 }

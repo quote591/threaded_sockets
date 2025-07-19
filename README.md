@@ -1,4 +1,4 @@
-Chat application with sockets and terminal based GUI for both Windows and Linux (eventually). 
+Chat application with end-to-end encryption and terminal based GUI for both Windows and Linux (eventually). 
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/f8214d45-33d3-419c-92a4-158352d848f6"/width=570>
@@ -6,10 +6,11 @@ Chat application with sockets and terminal based GUI for both Windows and Linux 
 An example image of the terminal based chat application on Windows 10.
 
 
-Written in C++17 using std::thread WinSock2 sockets.
+Written in C++17 using std::thread WinSock2 sockets and security using OpenSSL.
 
 # Building
 Note the application will only work on `Windows` at this current moment. I have yet to port it over to Linux.
+OpenSSL should be installed on the system and linked in the CMake file.
 
 Building the client and server are done in the exact same way. They both have a CMake file.
 

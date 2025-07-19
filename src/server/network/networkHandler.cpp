@@ -515,9 +515,6 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, En
         // No packet, connection dropped
         else if (recvLengthSize == 0)
         {
-            // Drop the senderstruct. If regular socket we can just return
-            if (senderStruct != nullptr) 
-                m_DisconnectUser(senderStruct);
             throw ("recv length 0: connection dropped.");
         }
 
@@ -540,9 +537,6 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, En
         }
         else if (recvLengthSize == 0)
         {
-            // Drop the senderstruct. If regular socket we can just return
-            if (senderStruct != nullptr) 
-                m_DisconnectUser(senderStruct);
             throw ("recv packet: connection dropped.");
         }
         
@@ -577,6 +571,10 @@ bool NetworkHandler::m_Recv(spNetworkedUser senderStruct, SOCKET* senderSock, En
     }
     catch(const char* err)
     {
+        // Error occured, drop client
+        if (senderStruct != nullptr) 
+            m_DisconnectUser(senderStruct);
+        
         Log::s_GetInstance()->m_LogWrite("NetworkHandler::m_Recv", "Error: ", err);
         return false;
     }
